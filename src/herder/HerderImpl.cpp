@@ -815,7 +815,7 @@ bool
 HerderImpl::recvTransactions(TxSetFramePtr txSet)
 {
     soci::transaction sqltx(mApp.getDatabase().getSession());
-    mApp.getDatabase().setCurrentTransactionReadOnly();
+    //mApp.getDatabase().setCurrentTransactionReadOnly();
 
     bool allGood = true;
     for (auto tx : txSet->sortForApply())
@@ -857,7 +857,7 @@ Herder::TransactionSubmitStatus
 HerderImpl::recvTransaction(TransactionFramePtr tx)
 {
     soci::transaction sqltx(mApp.getDatabase().getSession());
-    mApp.getDatabase().setCurrentTransactionReadOnly();
+    //mApp.getDatabase().setCurrentTransactionReadOnly();
 
     auto const& acc = tx->getSourceID();
     auto const& txID = tx->getFullHash();
