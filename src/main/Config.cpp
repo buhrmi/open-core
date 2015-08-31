@@ -21,13 +21,13 @@ Config::Config() : PEER_KEY(SecretKey::random())
     OVERLAY_PROTOCOL_VERSION = 1;
     VERSION_STR = STELLAR_CORE_VERSION;
     REBUILD_DB = false;
-    DESIRED_BASE_RESERVE = 10000000;
+    DESIRED_BASE_RESERVE = 0;
     FORCE_SCP = false;
 
     // configurable
     FAILURE_SAFETY = 1;
     UNSAFE_QUORUM = false;
-    DESIRED_BASE_FEE = 10;
+    DESIRED_BASE_FEE = 0;
     DESIRED_MAX_TX_PER_LEDGER = 500;
     PEER_PORT = DEFAULT_PEER_PORT;
     RUN_STANDALONE = false;
@@ -193,7 +193,7 @@ Config::load(std::string const& filename)
                     throw std::invalid_argument("invalid DESIRED_BASE_FEE");
                 }
                 int64_t f = item.second->as<int64_t>()->value();
-                if (f <= 0 || f >= UINT32_MAX)
+                if (f < 0 || f >= UINT32_MAX)
                 {
                     throw std::invalid_argument("invalid DESIRED_BASE_FEE");
                 }
