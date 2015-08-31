@@ -116,11 +116,13 @@ server::handle_request(const request& req, reply& rep)
         mRoutes[command](params, rep.content);
 
         rep.status = reply::ok;
-        rep.headers.resize(2);
+        rep.headers.resize(3);
         rep.headers[0].name = "Content-Length";
         rep.headers[0].value = std::to_string(rep.content.size());
         rep.headers[1].name = "Content-Type";
         rep.headers[1].value = "application/json";
+        rep.headers[2].name = "Access-Control-Allow-Origin";
+        rep.headers[2].value = "*";
     }
     else
     {
@@ -129,11 +131,13 @@ server::handle_request(const request& req, reply& rep)
             mRoutes["404"](params, rep.content);
 
             rep.status = reply::ok;
-            rep.headers.resize(2);
+            rep.headers.resize(3);
             rep.headers[0].name = "Content-Length";
             rep.headers[0].value = std::to_string(rep.content.size());
             rep.headers[1].name = "Content-Type";
             rep.headers[1].value = "text/html";
+            rep.headers[2].name = "Access-Control-Allow-Origin";
+            rep.headers[2].value = "*";
         } else
         {
             rep = reply::stock_reply(reply::not_found);
