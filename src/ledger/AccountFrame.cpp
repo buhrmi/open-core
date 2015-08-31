@@ -194,18 +194,18 @@ AccountFrame::loadAccount(AccountID const& accountID, Database& db)
     AccountEntry& account = res->getAccount();
 
     auto prep =
-        db.getPreparedStatement("WITH new_acc AS("
-"INSERT INTO accounts (accountid, balance, seqnum, numsubentries, inflationdest, thresholds, flags, lastmodified)"
-"SELECT :v1, 0, 1, 0, NULL,'AQAAAA==',0,1"
-"WHERE NOT EXISTS (SELECT * FROM accounts WHERE accountid=:v1)"
-"RETURNING *"
-")"
+        db.getPreparedStatement("WITH new_acc AS( "
+"INSERT INTO accounts (accountid, balance, seqnum, numsubentries, inflationdest, thresholds, flags, lastmodified) "
+"SELECT :v1, 0, 1, 0, NULL,'AQAAAA==',0,1 "
+"WHERE NOT EXISTS (SELECT * FROM accounts WHERE accountid=:v1) "
+"RETURNING * "
+") "
 "SELECT "
-"balance, seqnum, numsubentries, inflationdest, homedomain, thresholds, flags,lastmodified"
-"FROM new_acc"
-"UNION"
+"balance, seqnum, numsubentries, inflationdest, homedomain, thresholds, flags,lastmodified "
+"FROM new_acc "
+"UNION "
 "SELECT "
-"balance, seqnum, numsubentries, inflationdest, homedomain, thresholds, flags,lastmodified"
+"balance, seqnum, numsubentries, inflationdest, homedomain, thresholds, flags,lastmodified "
 "FROM accounts WHERE accountid=:v1;");
     auto& st = prep.statement();
     st.exchange(into(account.balance));
