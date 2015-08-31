@@ -216,7 +216,7 @@ AccountFrame::loadAccount(AccountID const& accountID, Database& db)
     st.exchange(into(thresholds, thresholdsInd));
     st.exchange(into(account.flags));
     st.exchange(into(res->getLastModified()));
-    st.exchange(use(actIDStrKey));
+    st.exchange(use(actIDStrKey, 'v1'));
     st.define_and_bind();
     {
         auto timer = db.getSelectTimer("account");
