@@ -196,7 +196,7 @@ AccountFrame::loadAccount(AccountID const& accountID, Database& db)
     auto prep =
         db.getPreparedStatement("WITH new_acc AS( "
 "INSERT INTO accounts (accountid, balance, seqnum, numsubentries, inflationdest, thresholds, flags, lastmodified) "
-"SELECT :v1, 0, 1, 0, NULL,'AQAAAA==',0,1 "
+"SELECT :v1, 0, 0, 0, NULL,'AQAAAA==',0,1 "
 "WHERE NOT EXISTS (SELECT * FROM accounts WHERE accountid=:v1) "
 "RETURNING * "
 ") "
