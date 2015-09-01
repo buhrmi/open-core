@@ -367,7 +367,7 @@ AccountFrame::storeUpdate(LedgerDelta& delta, Database& db, bool insert)
 
     std::string actIDStrKey = PubKeyUtils::toStrKey(mAccountEntry.accountID);
     std::string sql;
-    CLOG(INFO, "Database") << "::" << actIDStrKey << "::"
+    CLOG(INFO, "Database") << "::" << actIDStrKey << "::";
     CLOG(INFO, "Database") << "isnew: " << isnew;
     CLOG(INFO, "Database") << "&isnew: " << &isnew;
     CLOG(INFO, "Database") << "*this->isnew: " << this->isnew;
