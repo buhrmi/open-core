@@ -149,22 +149,17 @@ void
 LedgerManagerImpl::startNewLedger()
 {
     auto ledgerTime = mLedgerClose.TimeScope();
-    ByteSlice bytes("allmylifemyhearthasbeensearching");
-    SecretKey skey = SecretKey::fromSeed(bytes);
 
-    AccountFrame masterAccount(skey.getPublicKey());
-    masterAccount.getAccount().balance = 100000000000000000;
     LedgerHeader genesisHeader;
 
     // all fields are initialized by default to 0
     // set the ones that are not 0
-    genesisHeader.baseFee = 10;
-    genesisHeader.baseReserve = 10000000;
-    genesisHeader.totalCoins = masterAccount.getAccount().balance;
+    genesisHeader.baseFee = 0;
+    genesisHeader.baseReserve = 0;
+    genesisHeader.totalCoins = 0;
     genesisHeader.ledgerSeq = 1;
 
     LedgerDelta delta(genesisHeader, getDatabase());
-    masterAccount.storeAdd(delta, this->getDatabase());
     delta.commit();
 
     mCurrentLedger = make_shared<LedgerHeaderFrame>(genesisHeader);
