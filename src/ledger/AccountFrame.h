@@ -25,7 +25,7 @@ class AccountFrame : public EntryFrame
 {
     void storeUpdate(LedgerDelta& delta, Database& db, bool insert);
     bool mUpdateSigners;
-
+    uint32 isnew;
     AccountEntry& mAccountEntry;
 
     void normalize();
@@ -34,7 +34,6 @@ class AccountFrame : public EntryFrame
 
   public:
     typedef std::shared_ptr<AccountFrame> pointer;
-    uint32 isnew;
     
     AccountFrame();
     AccountFrame(LedgerEntry const& from);
