@@ -368,9 +368,9 @@ AccountFrame::storeUpdate(LedgerDelta& delta, Database& db, bool insert)
     std::string actIDStrKey = PubKeyUtils::toStrKey(mAccountEntry.accountID);
     std::string sql;
 
-    if (isnew == 1)
+    if (getIsNew() == 1)
     {
-        CLOG(INFO, "Database") << "Inserting account because: " << isnew;
+        CLOG(INFO, "Database") << "Inserting account because: " << getIsNew();
         sql = std::string(
             "INSERT INTO accounts ( accountid, balance, seqnum, "
             "numsubentries, inflationdest, homedomain, thresholds, flags, "
@@ -379,7 +379,7 @@ AccountFrame::storeUpdate(LedgerDelta& delta, Database& db, bool insert)
     }
     else
     {
-        CLOG(INFO, "Database") << "Updating account because: " << isnew;
+        CLOG(INFO, "Database") << "Updating account because: " << getIsNew();
         sql = std::string(
             "UPDATE accounts SET balance = :v1, seqnum = :v2, "
             "numsubentries = :v3, "
