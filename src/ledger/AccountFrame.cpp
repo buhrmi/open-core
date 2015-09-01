@@ -213,7 +213,7 @@ AccountFrame::loadAccount(AccountID const& accountID, Database& db)
 "FROM accounts WHERE accountid=:v1 "
 "UNION SELECT "
 "0 as balance, 0 as seqnum, 0 as numsubentries, null as inflationdest, NULL as homedomain,'AQAAAA==' as thresholds,0 as flags,0 as lastmodified, 1 as isnew  "
-"WHERE NOT EXISTS (SELECT * FROM accounts WHERE accountid=:v1); ");
+"WHERE NOT EXISTS (SELECT * FROM accounts WHERE accountid=:v1)");
     auto& st = prep.statement();
     st.exchange(into(account.balance));
     st.exchange(into(account.seqNum));
@@ -236,8 +236,8 @@ AccountFrame::loadAccount(AccountID const& accountID, Database& db)
         putCachedEntry(key, nullptr, db);
         return nullptr;
     }
-    CLOG(INFO, "Database") << "isnew is: " << res->isnew;
-    CLOG(INFO, "Database") << "getisnew is: " << res->getIsNew();
+    CLOG(INFO, "Database") << actIDStrKey <<" isnew is: " << res->isnew;
+
 
     if (homeDomainInd == soci::i_ok)
     {
@@ -388,7 +388,7 @@ AccountFrame::storeUpdate(LedgerDelta& delta, Database& db, bool insert)
             "inflationdest = :v4, homedomain = :v5, thresholds = :v6, "
             "flags = :v7, lastmodified = :v8 WHERE accountid = :id");
     }
-
+    isnew = 0;
     
     auto prep = db.getPreparedStatement(sql);
 
