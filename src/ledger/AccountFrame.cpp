@@ -122,6 +122,18 @@ AccountFrame::getBalanceAboveReserve(LedgerManager const& lm) const
     return avail;
 }
 
+bool
+AccountFrame::getIsNew() const
+{
+    return isnew;
+}
+
+bool&
+AccountFrame::getIsNew()
+{
+    return isnew;
+}
+
 // returns true if successfully updated,
 // false if balance is not sufficient
 bool
