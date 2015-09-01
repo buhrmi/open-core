@@ -207,10 +207,10 @@ AccountFrame::loadAccount(AccountID const& accountID, Database& db)
 
     auto prep =
         db.getPreparedStatement("SELECT "
-"balance, seqnum, numsubentries, inflationdest, homedomain, thresholds, flags,lastmodified, false as isnew "
+"balance, seqnum, numsubentries, inflationdest, homedomain, thresholds, flags,lastmodified, 0 as isnew "
 "FROM accounts WHERE accountid=:v1 "
 "UNION SELECT "
-"0 as balance, 0 as seqnum, 0 as numsubentries, null as inflationdest, NULL as homedomain,'AQAAAA==' as thresholds,0 as flags,1 as lastmodified, true as isnew  "
+"0 as balance, 0 as seqnum, 0 as numsubentries, null as inflationdest, NULL as homedomain,'AQAAAA==' as thresholds,0 as flags,0 as lastmodified, 1 as isnew  "
 "WHERE NOT EXISTS (SELECT * FROM accounts WHERE accountid=:v1); ");
     auto& st = prep.statement();
     st.exchange(into(account.balance));
