@@ -194,19 +194,12 @@ AccountFrame::loadAccount(AccountID const& accountID, Database& db)
     AccountEntry& account = res->getAccount();
 
     auto prep =
-        db.getPreparedStatement("WITH new_acc AS( "
-"INSERT INTO accounts (accountid, balance, seqnum, numsubentries, inflationdest, thresholds, flags, lastmodified) "
-"SELECT :v1, 0, 0, 0, NULL,'AQAAAA==',0,1 "
-"WHERE NOT EXISTS (SELECT * FROM accounts WHERE accountid=:v1) "
-"RETURNING * "
-") "
-"SELECT "
-"balance, seqnum, numsubentries, inflationdest, homedomain, thresholds, flags,lastmodified "
-"FROM new_acc "
-"UNION "
-"SELECT "
-"balance, seqnum, numsubentries, inflationdest, homedomain, thresholds, flags,lastmodified "
-"FROM accounts WHERE accountid=:v1;");
+        db.getPreparedStatement("SELECT "
+"balance, seqnum, numsubentries, inflationdest, homedomain, thresholds, flags,lastmodified, false as isnew "
+"FROM accounts WHERE accountid=:v1 "
+"UNION SELECT "
+"0 as balance, 0 as seqnum, 0 as numsubentries, null as inflationdest, NULL as homedomain,'AQAAAA==' as thresholds,0 as flags,1 as lastmodified, true as isnew  "
+"WHERE NOT EXISTS (SELECT * FROM accounts WHERE accountid=:v1); ");
     auto& st = prep.statement();
     st.exchange(into(account.balance));
     st.exchange(into(account.seqNum));
@@ -215,6 +208,7 @@ AccountFrame::loadAccount(AccountID const& accountID, Database& db)
     st.exchange(into(homeDomain, homeDomainInd));
     st.exchange(into(thresholds, thresholdsInd));
     st.exchange(into(account.flags));
+    st.exchange(into(account.isnew));
     st.exchange(into(res->getLastModified()));
     st.exchange(use(actIDStrKey, "v1"));
     st.define_and_bind();
