@@ -101,7 +101,7 @@ LedgerHeaderFrame::storeInsert(LedgerManager& ledgerManager) const
     }
     if (st.get_affected_rows() != 1)
     {
-        throw std::runtime_error("Could not update data in SQL");
+        throw std::runtime_error("Could not update data in SQL (ledgerheader)");
     }
 }
 
