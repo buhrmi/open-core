@@ -101,6 +101,9 @@ class AccountFrame : public EntryFrame
         return mAccountEntry;
     }
 
+    bool getIsNew() const;
+    bool& getIsNew();
+
     // Instance-based overrides of EntryFrame.
     void storeDelete(LedgerDelta& delta, Database& db) const override;
     void storeChange(LedgerDelta& delta, Database& db) override;
