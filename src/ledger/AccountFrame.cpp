@@ -54,7 +54,7 @@ AccountFrame::AccountFrame()
 {
     mAccountEntry.thresholds[0] = 1; // by default, master key's weight is 1
     mUpdateSigners = false;
-    isnew = 1;
+    isnew = 0;
 }
 
 AccountFrame::AccountFrame(LedgerEntry const& from)
@@ -206,7 +206,7 @@ AccountFrame::loadAccount(AccountID const& accountID, Database& db)
 
     AccountFrame::pointer res = make_shared<AccountFrame>(accountID);
     AccountEntry& account = res->getAccount();
-
+    CLOG(INFO, "Database") << "BEFORE getisnew is: " << res->getIsNew();
     auto prep =
         db.getPreparedStatement("SELECT "
 "balance, seqnum, numsubentries, inflationdest, homedomain, thresholds, flags,lastmodified, 0 as isnew "
@@ -368,9 +368,8 @@ AccountFrame::storeUpdate(LedgerDelta& delta, Database& db, bool insert)
     std::string actIDStrKey = PubKeyUtils::toStrKey(mAccountEntry.accountID);
     std::string sql;
     CLOG(INFO, "Database") << "isnew: " << isnew;
-    CLOG(INFO, "Database") << "*isnew: " << *isnew;
     CLOG(INFO, "Database") << "&isnew: " << &isnew;
-    CLOG(INFO, "Database") << "*this->isnew: " << *this->isnew;
+    CLOG(INFO, "Database") << "*this->isnew: " << this->isnew;
     if (getIsNew() == 1)
     {
        
