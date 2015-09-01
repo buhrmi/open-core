@@ -54,7 +54,7 @@ AccountFrame::AccountFrame()
 {
     mAccountEntry.thresholds[0] = 1; // by default, master key's weight is 1
     mUpdateSigners = false;
-    isnew = 0;
+    isnew = 2;
 }
 
 AccountFrame::AccountFrame(LedgerEntry const& from)
@@ -368,9 +368,8 @@ AccountFrame::storeUpdate(LedgerDelta& delta, Database& db, bool insert)
     std::string actIDStrKey = PubKeyUtils::toStrKey(mAccountEntry.accountID);
     std::string sql;
     CLOG(INFO, "Database") << "::" << actIDStrKey << "::";
-    CLOG(INFO, "Database") << "isnew: " << isnew;
-    CLOG(INFO, "Database") << "&isnew: " << &isnew;
-    CLOG(INFO, "Database") << "*this->isnew: " << this->isnew;
+    CLOG(INFO, "Database") << "getIsNew(): " << getIsNew();
+
     if (getIsNew() == 1)
     {
        
@@ -389,6 +388,7 @@ AccountFrame::storeUpdate(LedgerDelta& delta, Database& db, bool insert)
             "inflationdest = :v4, homedomain = :v5, thresholds = :v6, "
             "flags = :v7, lastmodified = :v8 WHERE accountid = :id");
     }
+    CLOG(INFO, "Database") << "setting to 0 for " << actIDStrKey;
     isnew = 0;
     
     auto prep = db.getPreparedStatement(sql);
