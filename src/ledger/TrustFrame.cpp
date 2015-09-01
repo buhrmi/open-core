@@ -255,7 +255,7 @@ TrustFrame::storeChange(LedgerDelta& delta, Database& db)
     }
     if (st.get_affected_rows() != 1)
     {
-        throw std::runtime_error("Could not update data in SQL");
+        throw std::runtime_error("Could not update data in SQL (Trustline)");
     }
 
     delta.modEntry(*this);
@@ -300,7 +300,7 @@ TrustFrame::storeAdd(LedgerDelta& delta, Database& db)
 
     if (st.get_affected_rows() != 1)
     {
-        throw std::runtime_error("Could not update data in SQL");
+        throw std::runtime_error("Could not insert data in SQL (Trustlines)");
     }
 
     delta.addEntry(*this);
