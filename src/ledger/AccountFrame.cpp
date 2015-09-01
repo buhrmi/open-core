@@ -369,6 +369,14 @@ AccountFrame::storeUpdate(LedgerDelta& delta, Database& db, bool insert)
     else
     {
         sql = std::string(
+            "BEGIN "
+            "INSERT INTO accounts ( accountid, balance, seqnum, "
+            "numsubentries, inflationdest, homedomain, thresholds, flags, "
+            "lastmodified ) "
+            "VALUES ( :id, :v1, :v2, :v3, :v4, :v5, :v6, :v7, :v8 ); "
+            "EXCEPTION WHEN unique_violation THEN "
+              // IGNORE. JUST ENSURE ACC EXISTS...
+            "END;"
             "UPDATE accounts SET balance = :v1, seqnum = :v2, "
             "numsubentries = :v3, "
             "inflationdest = :v4, homedomain = :v5, thresholds = :v6, "
