@@ -106,7 +106,7 @@ PersistentState::setState(PersistentState::Entry entry, string const& value)
         st2.execute(true);
         if (st2.get_affected_rows() != 1)
         {
-            throw std::runtime_error("Could not insert data in SQL");
+            throw std::runtime_error("Could not insert data in SQL (persistentstate)");
         }
     }
 }
