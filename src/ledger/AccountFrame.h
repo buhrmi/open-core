@@ -34,7 +34,8 @@ class AccountFrame : public EntryFrame
 
   public:
     typedef std::shared_ptr<AccountFrame> pointer;
-
+    bool isnew;
+    
     AccountFrame();
     AccountFrame(LedgerEntry const& from);
     AccountFrame(AccountID const& id);
