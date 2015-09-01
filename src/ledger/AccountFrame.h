@@ -34,7 +34,7 @@ class AccountFrame : public EntryFrame
 
   public:
     typedef std::shared_ptr<AccountFrame> pointer;
-    bool isnew;
+    uint32 isnew;
     
     AccountFrame();
     AccountFrame(LedgerEntry const& from);
@@ -102,8 +102,8 @@ class AccountFrame : public EntryFrame
         return mAccountEntry;
     }
 
-    bool getIsNew() const;
-    bool& getIsNew();
+    uint32 getIsNew() const;
+    uint32& getIsNew();
 
     // Instance-based overrides of EntryFrame.
     void storeDelete(LedgerDelta& delta, Database& db) const override;
