@@ -122,13 +122,13 @@ AccountFrame::getBalanceAboveReserve(LedgerManager const& lm) const
     return avail;
 }
 
-bool
+uint32
 AccountFrame::getIsNew() const
 {
     return isnew;
 }
 
-bool&
+uint32&
 AccountFrame::getIsNew()
 {
     return isnew;
