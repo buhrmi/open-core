@@ -9,6 +9,7 @@
 #include "LedgerDelta.h"
 #include "ledger/LedgerManager.h"
 #include "util/basen.h"
+#include "util/Logging.h"
 #include <algorithm>
 
 using namespace soci;
