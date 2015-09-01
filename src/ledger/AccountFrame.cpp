@@ -364,7 +364,7 @@ AccountFrame::storeUpdate(LedgerDelta& delta, Database& db, bool insert)
     std::string actIDStrKey = PubKeyUtils::toStrKey(mAccountEntry.accountID);
     std::string sql;
 
-    if (isnew)
+    if (isnew == 1)
     {
         sql = std::string(
             "INSERT INTO accounts ( accountid, balance, seqnum, "
