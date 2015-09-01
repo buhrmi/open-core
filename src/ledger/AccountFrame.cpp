@@ -409,7 +409,7 @@ AccountFrame::storeUpdate(LedgerDelta& delta, Database& db, bool insert)
 
         if (st.get_affected_rows() != 1)
         {
-            throw std::runtime_error("Could not update data in SQL");
+            throw std::runtime_error("Could not update data in SQL (account)");
         }
         if (insert)
         {
@@ -485,7 +485,7 @@ AccountFrame::storeUpdate(LedgerDelta& delta, Database& db, bool insert)
                     if (st.get_affected_rows() != 1)
                     {
                         throw std::runtime_error(
-                            "Could not update data in SQL");
+                            "Could not update data in SQL (signer)");
                     }
                 }
             }
@@ -516,7 +516,7 @@ AccountFrame::storeUpdate(LedgerDelta& delta, Database& db, bool insert)
                             if (st.get_affected_rows() != 1)
                             {
                                 throw std::runtime_error(
-                                    "Could not update data in SQL");
+                                    "Could not update data in SQL (signer2)");
                             }
                         }
                         found = true;
@@ -542,7 +542,7 @@ AccountFrame::storeUpdate(LedgerDelta& delta, Database& db, bool insert)
                     if (st.get_affected_rows() != 1)
                     {
                         throw std::runtime_error(
-                            "Could not update data in SQL");
+                            "Could not update data in SQL (new signer)");
                     }
                 }
             }
