@@ -678,7 +678,7 @@ LedgerManagerImpl::closeLedger(LedgerCloseData const& ledgerData)
             tx->getResult().result.code(txINTERNAL_ERROR);
             tx->getResult().feeCharged = 0;
         }
-        if (tx->getResult().feeCharged == 0)
+        if (tx->getResult().result.code == txINTERNAL_ERROR)
         {
             CLOG(ERROR, "Tx") << "invalid tx";
             CLOG(ERROR, "Tx")
