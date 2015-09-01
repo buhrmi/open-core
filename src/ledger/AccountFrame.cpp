@@ -54,6 +54,7 @@ AccountFrame::AccountFrame()
 {
     mAccountEntry.thresholds[0] = 1; // by default, master key's weight is 1
     mUpdateSigners = false;
+    isnew = 1;
 }
 
 AccountFrame::AccountFrame(LedgerEntry const& from)
@@ -235,6 +236,8 @@ AccountFrame::loadAccount(AccountID const& accountID, Database& db)
         putCachedEntry(key, nullptr, db);
         return nullptr;
     }
+    CLOG(INFO, "Database") << "isnew is: " << res->isnew;
+    CLOG(INFO, "Database") << "getisnew is: " << res->getIsNew();
 
     if (homeDomainInd == soci::i_ok)
     {
