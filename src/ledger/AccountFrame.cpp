@@ -370,7 +370,7 @@ AccountFrame::storeUpdate(LedgerDelta& delta, Database& db, bool insert)
     CLOG(INFO, "Database") << "isnew: " << isnew;
     CLOG(INFO, "Database") << "&isnew: " << &isnew;
     CLOG(INFO, "Database") << "*this->isnew: " << this->isnew;
-    if (getIsNew() == 1)
+    if (getIsNew() == 368)
     {
        
         sql = std::string(
