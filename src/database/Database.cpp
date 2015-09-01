@@ -47,7 +47,7 @@ static void
 setSerializable(soci::session& sess)
 {
     sess << "SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL "
-            "SERIALIZABLE";
+            "READ COMMITTED";
 }
 
 void
