@@ -372,30 +372,19 @@ AccountFrame::storeUpdate(LedgerDelta& delta, Database& db, bool insert)
 
     std::string actIDStrKey = PubKeyUtils::toStrKey(mAccountEntry.accountID);
     std::string sql;
-    CLOG(INFO, "Database") << "::" << actIDStrKey << "::";
-    CLOG(INFO, "Database") << "getIsNew(): " << getIsNew();
 
-    if (getIsNew())
-    {
-       
+   
         sql = std::string(
             "INSERT INTO accounts ( accountid, balance, seqnum, "
             "numsubentries, inflationdest, homedomain, thresholds, flags, "
             "lastmodified ) "
-            "VALUES ( :id, :v1, :v2, :v3, :v4, :v5, :v6, :v7, :v8 )");
-    }
-    else
-    {
-        CLOG(INFO, "Database") << "Updating account because: " << getIsNew();
-        sql = std::string(
-            "UPDATE accounts SET balance = :v1, seqnum = :v2, "
+            "VALUES ( :id, :v1, :v2, :v3, :v4, :v5, :v6, :v7, :v8 ) "
+            "ON CONFLICT DO SET balance = :v1, seqnum = :v2, "
             "numsubentries = :v3, "
             "inflationdest = :v4, homedomain = :v5, thresholds = :v6, "
-            "flags = :v7, lastmodified = :v8 WHERE accountid = :id");
-    }
-    CLOG(INFO, "Database") << "setting to 0 for " << actIDStrKey;
-    isnew = false;
-    
+            "flags = :v7, lastmodified = :v8 WHERE accountid = :id")");
+   
+
     auto prep = db.getPreparedStatement(sql);
 
     soci::indicator inflation_ind = soci::i_null;
