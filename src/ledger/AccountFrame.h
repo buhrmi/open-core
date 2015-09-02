@@ -25,7 +25,7 @@ class AccountFrame : public EntryFrame
 {
     void storeUpdate(LedgerDelta& delta, Database& db, bool insert);
     bool mUpdateSigners;
-    uint32 isnew;
+    bool isnew;
     AccountEntry& mAccountEntry;
 
     void normalize();
@@ -101,8 +101,8 @@ class AccountFrame : public EntryFrame
         return mAccountEntry;
     }
 
-    uint32 getIsNew() const;
-    uint32& getIsNew();
+    bool getIsNew() const;
+    bool& getIsNew() const;
 
     // Instance-based overrides of EntryFrame.
     void storeDelete(LedgerDelta& delta, Database& db) const override;
