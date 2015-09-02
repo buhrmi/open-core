@@ -130,12 +130,6 @@ AccountFrame::getIsNew()
     return isnew;
 }
 
-bool&
-AccountFrame::getIsNew()
-{
-    return isnew;
-}
-
 // returns true if successfully updated,
 // false if balance is not sufficient
 bool
