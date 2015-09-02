@@ -5,7 +5,7 @@ It is definitely not ready yet for production.
  
 # core
 
-The Core Consensus is basically the same as the Stellar Consensus with one small difference with huge implications:
+The Core Consensus is basically the same as the [Stellar Consensus](http://www.stellar.org/galaxy) with one small difference with huge implications:
 
 - The removal of native currency
 
