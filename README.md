@@ -13,6 +13,7 @@ Implications:
 
 - Transactions are FREE (the fee is always zero)
 - Addresses don't need to receive a "createAccount" Transaction before they can be used.
+- Accounts don't need to be funded (no friendbot).
 - There is no central authority in charge of giving away native currency.
 - The genesis ledger is 100% EMPTY.
 
