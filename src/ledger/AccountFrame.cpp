@@ -238,7 +238,7 @@ AccountFrame::loadAccount(AccountID const& accountID, Database& db)
         return nullptr;
     }
     if (sqlIsNew == 1) {
-        res->setIsNew()
+        res->setIsNew();
     }
     CLOG(INFO, "Database") << actIDStrKey <<" sqlisnew is: " << sqlIsNew;
     CLOG(INFO, "Database") << actIDStrKey <<" isnew is: " << res->isnew;
