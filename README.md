@@ -3,7 +3,7 @@
 # Note this code is pre-beta. 
 It is definitely not ready yet for production.
  
-# core
+# Core Consensus
 
 The Core Consensus is basically the same as the [Stellar Consensus](http://www.stellar.org/galaxy) with one small difference with huge implications:
 
