@@ -101,7 +101,7 @@ class AccountFrame : public EntryFrame
         return mAccountEntry;
     }
 
-    bool getIsNew() const;
+    bool getIsNew();
     void setIsNew();
 
     // Instance-based overrides of EntryFrame.
