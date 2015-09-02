@@ -375,7 +375,7 @@ AccountFrame::storeUpdate(LedgerDelta& delta, Database& db, bool insert)
     CLOG(INFO, "Database") << "::" << actIDStrKey << "::";
     CLOG(INFO, "Database") << "getIsNew(): " << getIsNew();
 
-    if (getIsNew() == 1)
+    if (getIsNew())
     {
        
         sql = std::string(
@@ -394,7 +394,7 @@ AccountFrame::storeUpdate(LedgerDelta& delta, Database& db, bool insert)
             "flags = :v7, lastmodified = :v8 WHERE accountid = :id");
     }
     CLOG(INFO, "Database") << "setting to 0 for " << actIDStrKey;
-    isnew = 0;
+    isnew = false;
     
     auto prep = db.getPreparedStatement(sql);
 
