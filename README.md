@@ -16,7 +16,15 @@ Implications:
 - There is no central authority in charge of giving away native currency.
 - The genesis ledger is 100% EMPTY.
 
-# Requires Postgres 9.5!!
+# Getting Started
+
+## Warning: Requires Postgres 9.5
+
+You WILL lose sync if you run against an earlier version.
+
+Installation instructions ---> [HERE](https://github.com/buhrmi/core/blob/master/INSTALL.md)
+ 
+
  
 # stellar-core
 
