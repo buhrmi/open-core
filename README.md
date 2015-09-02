@@ -23,6 +23,8 @@ Implications:
 You WILL lose sync if you run against an earlier version. YOU HAVE BEEN WARNED.
 
 Installation instructions ---> [HERE](https://github.com/buhrmi/core/blob/master/INSTALL.md)
+
+After installation, use [this configuration file](https://github.com/buhrmi/core/blob/master/docs/open-core.cfg) to configure your node to connect to the network.
  
 
 # Contributing
