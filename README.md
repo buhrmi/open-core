@@ -20,14 +20,14 @@ Implications:
 
 ## Warning: Requires Postgres 9.5
 
-You WILL lose sync if you run against an earlier version.
+You WILL lose sync if you run against an earlier version. YOU HAVE BEEN WARNED.
 
 Installation instructions ---> [HERE](https://github.com/buhrmi/core/blob/master/INSTALL.md)
  
 
 # Contributing
 
-Just do your best!
+Just do your best! If you have any questions, join us in the developer chat at [Slack](https://stellar-public.slack.com/messages/dev/) and ask away.
 
 # License
 
