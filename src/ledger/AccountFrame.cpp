@@ -54,7 +54,7 @@ AccountFrame::AccountFrame()
 {
     mAccountEntry.thresholds[0] = 1; // by default, master key's weight is 1
     mUpdateSigners = false;
-    isnew = 2;
+    isnew = false;
 }
 
 AccountFrame::AccountFrame(LedgerEntry const& from)
@@ -124,13 +124,13 @@ AccountFrame::getBalanceAboveReserve(LedgerManager const& lm) const
     return avail;
 }
 
-uint32
-AccountFrame::getIsNew() const
+bool
+AccountFrame::getIsNew()
 {
     return isnew;
 }
 
-uint32&
+bool&
 AccountFrame::getIsNew()
 {
     return isnew;
@@ -180,6 +180,12 @@ AccountFrame::getMediumThreshold() const
     return mAccountEntry.thresholds[THRESHOLD_MED];
 }
 
+void
+AccountFrame::setIsNew()
+{
+    isnew = true;
+}
+
 uint32_t
 AccountFrame::getLowThreshold() const
 {
@@ -190,6 +196,7 @@ AccountFrame::pointer
 AccountFrame::loadAccount(AccountID const& accountID, Database& db)
 {
     LedgerKey key;
+    uint32_t sqlIsNew;
     key.type(ACCOUNT);
     key.account().accountID = accountID;
     if (cachedEntryExists(key, db))
@@ -223,7 +230,7 @@ AccountFrame::loadAccount(AccountID const& accountID, Database& db)
     st.exchange(into(thresholds, thresholdsInd));
     st.exchange(into(account.flags));
     st.exchange(into(res->getLastModified()));
-    st.exchange(into(res->getIsNew()));
+    st.exchange(into(sqlIsNew));
     st.exchange(use(actIDStrKey, "v1"));
     st.define_and_bind();
     {
@@ -236,6 +243,10 @@ AccountFrame::loadAccount(AccountID const& accountID, Database& db)
         putCachedEntry(key, nullptr, db);
         return nullptr;
     }
+    if (sqlIsNew == 1) {
+        res->setIsNew()
+    }
+    CLOG(INFO, "Database") << actIDStrKey <<" sqlisnew is: " << sqlIsNew;
     CLOG(INFO, "Database") << actIDStrKey <<" isnew is: " << res->isnew;
 
 
