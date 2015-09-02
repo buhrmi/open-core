@@ -97,7 +97,7 @@ TransactionFrame::getFeeRatio(Application& app) const
 int64_t
 TransactionFrame::getFee() const
 {
-    return mEnvelope.tx.fee;
+    return 0;
 }
 
 int64_t
@@ -288,20 +288,9 @@ TransactionFrame::checkValid(Application& app, bool applying,
 
     // failures after this point will end up charging a fee if attempting to run
     // "apply"
-    getResult().feeCharged = mEnvelope.tx.fee;
+    getResult().feeCharged = 0;
 
-    // don't let the account go below the reserve
-    if (mSigningAccount->getAccount().balance - mEnvelope.tx.fee <
-        mSigningAccount->getMinimumBalance(app.getLedgerManager()))
-    {
-        app.getMetrics()
-            .NewMeter({"transaction", "invalid", "insufficient-balance"},
-                      "transaction")
-            .Mark();
-        getResult().result.code(txINSUFFICIENT_BALANCE);
-        return false;
-    }
-
+  
     if (!applying)
     {
         for (auto& op : mOperations)
@@ -349,8 +338,8 @@ TransactionFrame::prepareResult(LedgerDelta& delta,
             fee = avail;
         }
         mSigningAccount->setSeqNum(mEnvelope.tx.seqNum);
-        mSigningAccount->getAccount().balance -= fee;
-        delta.getHeader().feePool += fee;
+        //mSigningAccount->getAccount().balance -= fee;
+        //delta.getHeader().feePool += fee;
 
         mSigningAccount->storeChange(delta, db);
     }
