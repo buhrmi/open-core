@@ -379,7 +379,7 @@ AccountFrame::storeUpdate(LedgerDelta& delta, Database& db, bool insert)
             "numsubentries, inflationdest, homedomain, thresholds, flags, "
             "lastmodified ) "
             "VALUES ( :id, :v1, :v2, :v3, :v4, :v5, :v6, :v7, :v8 ) "
-            "ON CONFLICT DO UPDATE SET balance = :v1, seqnum = :v2, "
+            "ON CONFLICT (accounts_pkey) DO UPDATE SET balance = :v1, seqnum = :v2, "
             "numsubentries = :v3, "
             "inflationdest = :v4, homedomain = :v5, thresholds = :v6, "
             "flags = :v7, lastmodified = :v8 WHERE accountid = :id");
