@@ -329,20 +329,13 @@ TransactionFrame::prepareResult(LedgerDelta& delta,
     Database& db = ledgerManager.getDatabase();
     int64_t& fee = getResult().feeCharged;
 
-    if (fee > 0)
-    {
-        int64_t avail = mSigningAccount->getAccount().balance;
-        if (avail < fee)
-        {
-            // take all their balance to be safe
-            fee = avail;
-        }
-        mSigningAccount->setSeqNum(mEnvelope.tx.seqNum);
-        //mSigningAccount->getAccount().balance -= fee;
-        //delta.getHeader().feePool += fee;
+   
+    mSigningAccount->setSeqNum(mEnvelope.tx.seqNum);
+    //mSigningAccount->getAccount().balance -= fee;
+    //delta.getHeader().feePool += fee;
 
-        mSigningAccount->storeChange(delta, db);
-    }
+    mSigningAccount->storeChange(delta, db);
+    
 }
 
 void
