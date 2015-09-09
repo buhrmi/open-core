@@ -15,8 +15,8 @@ Users and developers can interact with the network in the following ways:
 
 The Open Core Network is based on the [Stellar Consensus](http://www.stellar.org/galaxy) Protocol with two differences with huge implications:
 
-- The removal of native currency
-- Network Passphrase is ignored
+- Removal of native currency
+- Removal of network passphrases
 
 Implications:
 
@@ -25,7 +25,8 @@ Implications:
 - Accounts don't need to be funded (no friendbot).
 - There is no central authority in charge of giving away native currency.
 - The genesis ledger is 100% EMPTY.
-- Consensus does not care about assigned passphrase/networkID
+- Security does not rely on network passphrase/networkID
+- There is no "root"
 - *TRULY* open network
 
 # Getting Started
