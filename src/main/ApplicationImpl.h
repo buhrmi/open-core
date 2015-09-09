@@ -55,6 +55,7 @@ class ApplicationImpl : public Application
     virtual OverlayManager& getOverlayManager() override;
     virtual Database& getDatabase() override;
     virtual PersistentState& getPersistentState() override;
+    virtual CommandHandler& getCommandHandler() override;
 
     virtual asio::io_service& getWorkerIOService() override;
 
@@ -83,6 +84,8 @@ class ApplicationImpl : public Application
     virtual void reportCfgMetrics() override;
 
     virtual void reportInfo() override;
+
+    virtual Hash const& getNetworkID() const override;
 
   private:
     VirtualClock& mVirtualClock;
@@ -126,6 +129,8 @@ class ApplicationImpl : public Application
     medida::Counter& mAppStateCurrent;
     medida::Timer& mAppStateChanges;
     VirtualClock::time_point mLastStateChange;
+
+    Hash mNetworkID;
 
     void shutdownMainIOService();
     void runWorkerThread(unsigned i);

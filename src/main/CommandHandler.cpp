@@ -19,6 +19,9 @@
 #include "util/basen.h"
 #include "medida/reporting/json_reporter.h"
 #include "xdrpp/marshal.h"
+#include "xdrpp/printer.h"
+
+#include "ExternalQueue.h"
 
 #include <regex>
 #include "transactions/TxTests.h"
@@ -64,18 +67,26 @@ CommandHandler::CommandHandler(Application& app) : mApp(app)
                       std::bind(&CommandHandler::checkpoint, this, _1, _2));
     mServer->addRoute("connect",
                       std::bind(&CommandHandler::connect, this, _1, _2));
+    mServer->addRoute("dropcursor",
+                      std::bind(&CommandHandler::dropcursor, this, _1, _2));
     mServer->addRoute("generateload",
                       std::bind(&CommandHandler::generateLoad, this, _1, _2));
     mServer->addRoute("info", std::bind(&CommandHandler::info, this, _1, _2));
     mServer->addRoute("ll", std::bind(&CommandHandler::ll, this, _1, _2));
     mServer->addRoute("logrotate",
                       std::bind(&CommandHandler::logRotate, this, _1, _2));
+    mServer->addRoute("maintenance",
+                      std::bind(&CommandHandler::maintenance, this, _1, _2));
     mServer->addRoute("manualclose",
                       std::bind(&CommandHandler::manualClose, this, _1, _2));
     mServer->addRoute("metrics",
                       std::bind(&CommandHandler::metrics, this, _1, _2));
     mServer->addRoute("peers", std::bind(&CommandHandler::peers, this, _1, _2));
+    mServer->addRoute("setcursor",
+                      std::bind(&CommandHandler::setcursor, this, _1, _2));
     mServer->addRoute("scp", std::bind(&CommandHandler::scpInfo, this, _1, _2));
+    mServer->addRoute("testacc",
+                      std::bind(&CommandHandler::testAcc, this, _1, _2));
     mServer->addRoute("testtx",
                       std::bind(&CommandHandler::testTx, this, _1, _2));
     mServer->addRoute("tx", std::bind(&CommandHandler::tx, this, _1, _2));
@@ -104,6 +115,41 @@ getSeq(SecretKey const& k, Application& app)
 }
 
 void
+CommandHandler::testAcc(std::string const& params, std::string& retStr)
+{
+    std::map<std::string, std::string> retMap;
+    http::server::server::parseParams(params, retMap);
+    Json::Value root;
+    auto accName = retMap.find("name");
+    if (accName == retMap.end())
+    {
+        root["status"] = "error";
+        root["detail"] = "Bad HTTP GET: try something like: testacc?name=bob";
+    }
+    else
+    {
+        SecretKey key;
+        if (accName->second == "root")
+        {
+            key = getRoot(mApp.getNetworkID());
+        }
+        else
+        {
+            key = getAccount(accName->second.c_str());
+        }
+        auto acc = loadAccount(key, mApp, false);
+        if (acc)
+        {
+            root["name"] = accName->second;
+            root["id"] = PubKeyUtils::toStrKey(acc->getID());
+            root["balance"] = (Json::Int64)acc->getBalance();
+            root["seqnum"] = (Json::UInt64)acc->getSeqNum();
+        }
+    }
+    retStr = root.toStyledString();
+}
+
+void
 CommandHandler::testTx(std::string const& params, std::string& retStr)
 {
     std::map<std::string, std::string> retMap;
@@ -114,41 +160,80 @@ CommandHandler::testTx(std::string const& params, std::string& retStr)
     auto amount = retMap.find("amount");
     auto create = retMap.find("create");
 
+    Json::Value root;
+
     if (to != retMap.end() && from != retMap.end() && amount != retMap.end())
     {
+        Hash const& networkID = mApp.getNetworkID();
+
         SecretKey toKey, fromKey;
         if (to->second == "root")
-            toKey = getRoot();
+        {
+            toKey = getRoot(networkID);
+        }
         else
+        {
             toKey = getAccount(to->second.c_str());
+        }
 
         if (from->second == "root")
-            fromKey = getRoot();
+        {
+            fromKey = getRoot(networkID);
+        }
         else
+        {
             fromKey = getAccount(from->second.c_str());
+        }
 
-        uint64_t paymentAmount = uint64_t(stoi(amount->second)) * 1000000ULL;
+        uint64_t paymentAmount = 0;
+        std::istringstream iss(amount->second);
+        iss >> paymentAmount;
+
+        root["from_name"] = from->second;
+        root["to_name"] = to->second;
+        root["from_id"] = PubKeyUtils::toStrKey(fromKey.getPublicKey());
+        root["to_id"] = PubKeyUtils::toStrKey(toKey.getPublicKey());
+        ;
+        root["amount"] = (Json::UInt64)paymentAmount;
 
         SequenceNumber fromSeq = getSeq(fromKey, mApp) + 1;
 
         TransactionFramePtr txFrame;
         if (create != retMap.end() && create->second == "true")
         {
-            txFrame =
-                createCreateAccountTx(fromKey, toKey, fromSeq, paymentAmount);
+            txFrame = createCreateAccountTx(networkID, fromKey, toKey, fromSeq,
+                                            paymentAmount);
         }
         else
         {
-            txFrame = createPaymentTx(fromKey, toKey, fromSeq, paymentAmount);
+            txFrame = createPaymentTx(networkID, fromKey, toKey, fromSeq,
+                                      paymentAmount);
         }
-        bool ret = (mApp.getHerder().recvTransaction(txFrame) ==
-                    Herder::TX_STATUS_PENDING);
-        retStr = ret ? "Transaction submitted" : "Something went wrong";
+
+        switch (mApp.getHerder().recvTransaction(txFrame))
+        {
+        case Herder::TX_STATUS_PENDING:
+            root["status"] = "pending";
+            break;
+        case Herder::TX_STATUS_DUPLICATE:
+            root["status"] = "duplicate";
+            break;
+        case Herder::TX_STATUS_ERROR:
+            root["status"] = "error";
+            root["detail"] =
+                xdr::xdr_to_string(txFrame->getResult().result.code());
+            break;
+        default:
+            assert(false);
+        }
     }
     else
     {
-        retStr = "try something like: testtx?from=root&to=bob&amount=100";
+        root["status"] = "error";
+        root["detail"] = "Bad HTTP GET: try something like: "
+                         "testtx?from=root&to=bob&amount=1000000000";
     }
+    retStr = root.toStyledString();
 }
 
 void
@@ -197,6 +282,23 @@ CommandHandler::fileNotFound(std::string const& params, std::string& retStr)
         "returns a JSON object<br>"
         "wasReceived: boolean, true if transaction was queued properly<br>"
         "result: hex encoded, XDR serialized 'TransactionResult'<br>"
+        "</p><p><h1> /dropcursor?id=XYZ</h1> deletes the tracking cursor with "
+        "identified by `id`. See `setcursor` for more information"
+        "</p><p><h1> /setcursor?id=ID&cursor=N</h1> sets or creates a cursor "
+        "identified by `ID` with value `N`. ID is an uppercase AlphaNum, N is "
+        "an uint32 that represents the last ledger sequence number that the "
+        "instance ID processed."
+        "Cursors are used by dependent services to tell stellar - core which "
+        "data can be safely deleted by the instance."
+        "The data is historical data stored in the SQL tables such as "
+        "txhistory or ledgerheaders.When all consumers processed the data for "
+        "ledger sequence N the data can be safely removed by the instance."
+        "The actual deletion is performed by invoking the `maintenance` "
+        "endpoint."
+        "</p><p><h1> /maintenance[?queue=true]</h1> Performs maintenance tasks "
+        "on the instance."
+        "<ul><li><i>queue</i> performs deletion of queue data.See setcursor "
+        "for more information</li></ul"
         "</p>"
 
         "<br>";
@@ -314,6 +416,7 @@ CommandHandler::info(std::string const& params, std::string& retStr)
     if (mApp.getConfig().UNSAFE_QUORUM)
         root["info"]["UNSAFE_QUORUM"] = "ALERT!!! QUORUM UNSAFE";
     root["info"]["build"] = STELLAR_CORE_VERSION;
+    root["info"]["protocol_version"] = mApp.getConfig().LEDGER_PROTOCOL_VERSION;
     root["info"]["state"] = mApp.getStateHuman();
     root["info"]["ledger"]["num"] = (int)lm.getLedgerNum();
     root["info"]["ledger"]["hash"] =
@@ -537,7 +640,8 @@ CommandHandler::tx(std::string const& params, std::string& retStr)
 
             xdr::xdr_from_opaque(binBlob, envelope);
             TransactionFramePtr transaction =
-                TransactionFrame::makeTransactionFromWire(envelope);
+                TransactionFrame::makeTransactionFromWire(mApp.getNetworkID(),
+                                                          envelope);
             if (transaction)
             {
                 // add it to our current set
@@ -586,5 +690,67 @@ CommandHandler::tx(std::string const& params, std::string& retStr)
     }
 
     retStr = output.str();
+}
+
+void
+CommandHandler::dropcursor(std::string const& params, std::string& retStr)
+{
+    std::map<std::string, std::string> map;
+    http::server::server::parseParams(params, map);
+    std::string const& id = map["id"];
+
+    if (!ExternalQueue::validateResourceID(id))
+    {
+        retStr = "Invalid resource id";
+    }
+    else
+    {
+        ExternalQueue ps(mApp);
+        ps.deleteCursor(id);
+        retStr = "Done";
+    }
+}
+
+void
+CommandHandler::setcursor(std::string const& params, std::string& retStr)
+{
+    std::map<std::string, std::string> map;
+    http::server::server::parseParams(params, map);
+    std::string const& id = map["id"];
+
+    uint32 cursor;
+
+    if (!parseOptionalNumParam(map, "cursor", cursor, retStr))
+    {
+        return;
+    }
+
+    if (!ExternalQueue::validateResourceID(id))
+    {
+        retStr = "Invalid resource id";
+    }
+    else
+    {
+        ExternalQueue ps(mApp);
+        ps.setCursorForResource(id, cursor);
+        retStr = "Done";
+    }
+}
+
+void
+CommandHandler::maintenance(std::string const& params, std::string& retStr)
+{
+    std::map<std::string, std::string> map;
+    http::server::server::parseParams(params, map);
+    if (map["queue"] == "true")
+    {
+        ExternalQueue ps(mApp);
+        ps.process();
+        retStr = "Done";
+    }
+    else
+    {
+        retStr = "No work performed";
+    }
 }
 }
