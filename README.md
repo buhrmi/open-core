@@ -1,11 +1,19 @@
 [![Build Status](https://travis-ci.org/stellar/stellar-core.svg?branch=auto)](https://travis-ci.org/stellar/stellar-core)
 
-# Note this code is beta. 
-It is not ready yet for production.
- 
-# Core Consensus
+# open-core/network
 
-The Core Consensus is basically the same as the [Stellar Consensus](http://www.stellar.org/galaxy) with two small differences with huge implications:
+The Open Core Network is a network of connected peers that work together to maintain consensus over the state of a globally synchronized cryptographic ledger. Users can create, sign and submit transactions into the network and query its replicated database for information.
+
+Users and developers can interact with the network in the following ways:
+
+* Through the official [open-core webapp](http://github.com/open-core/webapp)
+* Through client libraries, currently for [ruby](http://github.com/open-core/open-core-ruby) and [Javascript](http://github.com/open-core/open-core-js)
+* Through an instance of the [Stellar Horizon API](http://github.com/stellar/horizon) server running against the Open Core Network
+* Directly accessing the Postgres SQL database (read-only)
+
+# Origins
+
+The Open Core Network is based on the [Stellar Consensus](http://www.stellar.org/galaxy) Protocol with two differences with huge implications:
 
 - The removal of native currency
 - Network Passphrase is ignored
