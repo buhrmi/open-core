@@ -462,6 +462,9 @@
     <ClCompile Include="..\..\src\main\dumpxdr.cpp">
       <Filter>main</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\src\main\ExternalQueue.cpp">
+      <Filter>main</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\ledger\LedgerManager.h">
@@ -804,6 +807,9 @@
     <ClInclude Include="src\generated\xdr\Stellar-types.h">
       <Filter>xdr\generated</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\src\main\ExternalQueue.h">
+      <Filter>main</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="..\..\AUTHORS" />
@@ -814,7 +820,6 @@
       <Filter>lib\xdrpp</Filter>
     </None>
     <None Include="libmedida\libmedida.vcxproj" />
-    <None Include="..\..\INSTALL" />
     <None Include="..\..\README.md" />
     <None Include="..\..\docs\testnet.md">
       <Filter>docs</Filter>
@@ -863,9 +868,6 @@
     <None Include="..\..\docs\stellar-core_testnet.cfg">
       <Filter>docs</Filter>
     </None>
-    <None Include="..\..\docs\concepts.md">
-      <Filter>docs</Filter>
-    </None>
     <None Include="..\..\docs\ledger.md">
       <Filter>docs</Filter>
     </None>
@@ -878,6 +880,19 @@
     <None Include="..\..\docs\commands.md">
       <Filter>docs</Filter>
     </None>
+    <None Include="..\..\docs\fuzzing.md">
+      <Filter>docs</Filter>
+    </None>
+    <None Include="..\..\docs\versioning.md">
+      <Filter>docs</Filter>
+    </None>
+    <None Include="..\..\docs\history.md">
+      <Filter>docs</Filter>
+    </None>
+    <None Include="..\..\docs\db-schema.md">
+      <Filter>docs</Filter>
+    </None>
+    <None Include="..\..\INSTALL.md" />
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="..\..\src\xdr\Stellar-ledger.x">
@@ -896,5 +911,8 @@
       <Filter>xdr</Filter>
     </CustomBuild>
     <CustomBuild Include="..\..\src\xdr\Stellar-SCP.x" />
+  </ItemGroup>
+  <ItemGroup>
+    <Text Include="..\..\INSTALL-Windows.txt" />
   </ItemGroup>
 </Project>
