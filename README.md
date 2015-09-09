@@ -5,9 +5,10 @@ It is not ready yet for production.
  
 # Core Consensus
 
-The Core Consensus is basically the same as the [Stellar Consensus](http://www.stellar.org/galaxy) with one small difference with huge implications:
+The Core Consensus is basically the same as the [Stellar Consensus](http://www.stellar.org/galaxy) with two small differences with huge implications:
 
 - The removal of native currency
+- Network Passphrase is ignored
 
 Implications:
 
@@ -16,6 +17,8 @@ Implications:
 - Accounts don't need to be funded (no friendbot).
 - There is no central authority in charge of giving away native currency.
 - The genesis ledger is 100% EMPTY.
+- Consensus does not care about assigned passphrase/networkID
+- *TRULY* open network
 
 # Getting Started
 
