@@ -30,6 +30,17 @@ Installation instructions ---> [HERE](https://github.com/buhrmi/core/blob/master
 
 After installation, use [this configuration file](https://github.com/buhrmi/core/blob/master/docs/open-core.cfg) to configure your node to connect to the network.
  
+# Running tests against postgreSQL
+
+There are two options.  The easiest is to have the test suite just
+create a temporary postgreSQL database cluster in /tmp and delete it
+after the test.  That will happen by default if you run `make check`.
+
+You can also create a temporary database cluster manually, by running
+`./src/test/selftest-pg bash` to get a shell, then running tests
+manually.  The advantage of this is that you can examine the database
+log in `$PGDATA/pg_log/` after running tests, as well as manually
+inspect the database with `psql`.
 
 # Contributing
 
