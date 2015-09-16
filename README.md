@@ -13,10 +13,11 @@ Users and developers can interact with the network in the following ways:
 
 # Origins
 
-The Open Core Network is based on the [Stellar Consensus](http://www.stellar.org/galaxy) Protocol with two differences with huge implications:
+The Open Core Network is based on the [Stellar Consensus](http://www.stellar.org/galaxy) Protocol with a couple differences:
 
 - Removal of native currency
 - Removal of network passphrases
+- Removal of the idea that a quorum can be unsafe
 
 Implications:
 
@@ -25,6 +26,7 @@ Implications:
 - Accounts don't need to be funded (no friendbot).
 - There is no central authority in charge of giving away native currency.
 - The genesis ledger is 100% EMPTY.
+- Trust in quorum validator nodes is axiomatic
 - Security does not rely on network passphrase/networkID
 - There is no "root"
 - *TRULY* open network
