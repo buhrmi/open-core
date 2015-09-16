@@ -39,7 +39,7 @@ You WILL lose sync if you run against an earlier version. YOU HAVE BEEN WARNED.
 
 Installation instructions ---> [HERE](https://github.com/buhrmi/core/blob/master/INSTALL.md)
 
-After installation, use [this configuration file](https://github.com/buhrmi/core/blob/master/docs/open-core.cfg) to configure your node to connect to the network.
+After installation, use [this configuration file](https://github.com/buhrmi/core/blob/master/docs/open-core.cfg) to configure your node to connect to the network. Note that this config file pre-configures my personal validator node (validator.open-core.org) in the quorum. DO NOT USE IT if you don't trust this node.
  
 * The only reason it requires Postgres 9.5 is because of upserts. I was too lazy/too inexperienced with C++ to refactor the code enough to work without upserts (the "on-the-fly" address creation feature). Accepting pull request that fixes that.
 
