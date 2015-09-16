@@ -33,7 +33,7 @@ Implications:
 
 # Getting Started
 
-## Warning: Requires Postgres 9.5
+## Warning: Requires Postgres 9.5*
 
 You WILL lose sync if you run against an earlier version. YOU HAVE BEEN WARNED.
 
@@ -41,6 +41,8 @@ Installation instructions ---> [HERE](https://github.com/buhrmi/core/blob/master
 
 After installation, use [this configuration file](https://github.com/buhrmi/core/blob/master/docs/open-core.cfg) to configure your node to connect to the network.
  
+* The only reason it requires Postgres 9.5 is because of upserts. I was too lazy/too inexperienced with C++ to refactor the code enough to work without upserts (the "on-the-fly" address creation feature). Accepting pull request that fixes that.
+
 # Running tests against postgreSQL
 
 There are two options.  The easiest is to have the test suite just
