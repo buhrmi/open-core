@@ -47,6 +47,7 @@ Config::Config() : PEER_KEY(SecretKey::random())
     PUBLIC_HTTP_PORT = false;
     PEER_PUBLIC_KEY = PEER_KEY.getPublicKey();
     PARANOID_MODE = false;
+    NETWORK_PASSPHRASE = "";
 
     DATABASE = "sqlite3://:memory:";
 }
@@ -485,31 +486,6 @@ Config::load(std::string const& filename)
 void
 Config::validateConfig()
 {
-    if (FAILURE_SAFETY == 0 && UNSAFE_QUORUM == false)
-    {
-        LOG(ERROR) << "Can't have FAILURE_SAFETY=0 unless you also set "
-                      "UNSAFE_QUORUM=true. Be sure you know what you are "
-                      "doing!";
-        throw std::invalid_argument("SCP unsafe");
-    }
-
-    unsigned int topSize = (unsigned int)(QUORUM_SET.validators.size() +
-                                          QUORUM_SET.innerSets.size());
-
-    if (topSize < 3 * FAILURE_SAFETY + 1)
-    {
-        LOG(ERROR) << "Not enough nodes in your Quorum set to ensure your "
-                      "desired level of FAILURE_SAFETY.";
-        throw std::invalid_argument("SCP unsafe");
-    }
-
-    unsigned int minSize = 1 + (topSize * 67 - 1) / 100;
-    if (QUORUM_SET.threshold < minSize && UNSAFE_QUORUM == false)
-    {
-        LOG(ERROR) << "Your THESHOLD_PERCENTAGE is too low. If you really want "
-                      "this set UNSAFE_QUORUM=true. Be sure you know what you "
-                      "are doing!";
-        throw std::invalid_argument("SCP unsafe");
-    }
+   // anything is fine.
 }
 }
