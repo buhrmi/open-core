@@ -61,4 +61,4 @@ Just do your best! If you have any questions, join us in the developer chat at [
 
 # License
 
-Yes.
+Yes. Check the license file for information.
