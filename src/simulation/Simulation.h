@@ -17,7 +17,7 @@
 #include "simulation/LoadGenerator.h"
 
 #define SIMULATION_CREATE_NODE(N)                                              \
-    const Hash v##N##VSeed = sha256("SEED_VALIDATION_SEED_" #N);               \
+    const Hash v##N##VSeed = sha256("NODE_SEED_" #N);               \
     const SecretKey v##N##SecretKey = SecretKey::fromSeed(v##N##VSeed);        \
     const PublicKey v##N##NodeID = v##N##SecretKey.getPublicKey();
 
@@ -48,13 +48,7 @@ class Simulation : public LoadGenerator
     std::vector<Application::pointer> getNodes();
     std::vector<NodeID> getNodeIDs();
 
-    void addConnection(NodeID initiator, NodeID acceptor);
-
-    std::shared_ptr<LoopbackPeerConnection>
-    addLoopbackConnection(NodeID initiator, NodeID acceptor);
-
-    void addTCPConnection(NodeID initiator, NodeID acception);
-
+    void addPendingConnection(NodeID const& initiator, NodeID const& acceptor);
     void startAllNodes();
     void stopAllNodes();
 
@@ -81,12 +75,18 @@ class Simulation : public LoadGenerator
     std::string metricsSummary(std::string domain = "");
 
   private:
+
+    void addConnection(NodeID initiator, NodeID acceptor);
+    void addLoopbackConnection(NodeID initiator, NodeID acceptor);
+    void addTCPConnection(NodeID initiator, NodeID acception);
+
     VirtualClock mClock;
     Mode mMode;
     int mConfigCount;
     Application::pointer mIdleApp;
     std::map<NodeID, Config::pointer> mConfigs;
     std::map<NodeID, Application::pointer> mNodes;
-    std::vector<std::shared_ptr<LoopbackPeerConnection>> mConnections;
+    std::vector<std::pair<NodeID, NodeID>> mPendingConnections;
+    std::vector<std::shared_ptr<LoopbackPeerConnection>> mLoopbackConnections;
 };
 }
