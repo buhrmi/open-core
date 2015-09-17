@@ -1,5 +1,7 @@
 [![Build Status](https://travis-ci.org/stellar/stellar-core.svg?branch=auto)](https://travis-ci.org/stellar/stellar-core)
 
+> Genesis 1:27 - "So God created man in his own image, in the image of God he created him; male and female he created them."
+
 # open-core/network
 
 The Open Core Network is a network of connected peers that work together to maintain consensus over the state of a globally synchronized cryptographic ledger. Users can create, sign and submit transactions into the network and query its replicated database for information.
