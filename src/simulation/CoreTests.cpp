@@ -65,7 +65,7 @@ TEST_CASE("3 nodes. 2 running. threshold 2", "[simulation][core3]")
         for (int i = 0; i < 3; i++)
         {
             keys.push_back(SecretKey::fromSeed(
-                sha256("SEED_VALIDATION_SEED_" + std::to_string(i))));
+                sha256("NODE_SEED_" + std::to_string(i))));
         }
 
         SCPQuorumSet qSet;
@@ -77,8 +77,8 @@ TEST_CASE("3 nodes. 2 running. threshold 2", "[simulation][core3]")
 
         simulation->addNode(keys[0], qSet, simulation->getClock());
         simulation->addNode(keys[1], qSet, simulation->getClock());
-        simulation->addConnection(keys[0].getPublicKey(),
-                                  keys[1].getPublicKey());
+        simulation->addPendingConnection(keys[0].getPublicKey(),
+                                         keys[1].getPublicKey());
 
         auto tBegin = std::chrono::system_clock::now();
 
