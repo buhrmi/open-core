@@ -13,10 +13,11 @@ Users and developers can interact with the network in the following ways:
 
 # Origins
 
-The Open Core Network is based on the [Stellar Consensus](http://www.stellar.org/galaxy) Protocol with two differences with huge implications:
+The Open Core Network is based on the [Stellar Consensus](http://www.stellar.org/galaxy) Protocol with a couple differences:
 
 - Removal of native currency
 - Removal of network passphrases
+- Removal of the idea that a quorum can be unsafe
 
 Implications:
 
@@ -25,20 +26,23 @@ Implications:
 - Accounts don't need to be funded (no friendbot).
 - There is no central authority in charge of giving away native currency.
 - The genesis ledger is 100% EMPTY.
+- Trust in quorum validator nodes is axiomatic
 - Security does not rely on network passphrase/networkID
 - There is no "root"
 - *TRULY* open network
 
 # Getting Started
 
-## Warning: Requires Postgres 9.5
+## Warning: Requires Postgres 9.5*
 
 You WILL lose sync if you run against an earlier version. YOU HAVE BEEN WARNED.
 
 Installation instructions ---> [HERE](https://github.com/buhrmi/core/blob/master/INSTALL.md)
 
-After installation, use [this configuration file](https://github.com/buhrmi/core/blob/master/docs/open-core.cfg) to configure your node to connect to the network.
+After installation, use [this configuration file](https://github.com/buhrmi/core/blob/master/docs/open-core.cfg) to configure your node to connect to the network. Note that this config file pre-configures my personal validator node (validator.open-core.org) in the quorum. DO NOT USE IT if you don't trust this node.
  
+* The only reason it requires Postgres 9.5 is because of upserts. I was too lazy/too inexperienced with C++ to refactor the code enough to work without upserts (the "on-the-fly" address creation feature). Accepting pull request that fixes that.
+
 # Running tests against postgreSQL
 
 There are two options.  The easiest is to have the test suite just
@@ -57,4 +61,4 @@ Just do your best! If you have any questions, join us in the developer chat at [
 
 # License
 
-Yes.
+Yes. Check the license file for information.
