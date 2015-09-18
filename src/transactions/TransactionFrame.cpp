@@ -344,20 +344,13 @@ TransactionFrame::processFeeSeqNum(LedgerDelta& delta,
     }
 
     Database& db = ledgerManager.getDatabase();
-    int64_t& fee = getResult().feeCharged;
-
-    mSigningAccount->setSeqNum(mEnvelope.tx.seqNum);
-    //mSigningAccount->getAccount().balance -= fee;
-    //delta.getHeader().feePool += fee;
-
-    mSigningAccount->storeChange(delta, db);
 
 
     if (mSigningAccount->getSeqNum() + 1 != mEnvelope.tx.seqNum)
     {
         // this should not happen as the transaction set is sanitized for
         // sequence numbers
-        throw std::runtime_error("Unexpected account state");
+        throw std::runtime_error("Unexpected account state ");
     }
     mSigningAccount->setSeqNum(mEnvelope.tx.seqNum);
     mSigningAccount->storeChange(delta, db);
