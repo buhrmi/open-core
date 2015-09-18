@@ -9,7 +9,7 @@ The Open Core Network is a network of connected peers that work together to main
 Users and developers can interact with the network in the following ways:
 
 * Through the official [open-core webapp](http://github.com/open-core/webapp)
-* Through client libraries, currently for [ruby](http://github.com/open-core/open-core-ruby) and [Javascript](http://github.com/open-core/open-core-js)
+* Through client libraries, currently for [ruby](http://github.com/stellar/ruby-stellar-base) and [Javascript](http://github.com/stellar/js-stellar-base)
 * Through an instance of the [Stellar Horizon API](http://github.com/stellar/horizon) server running against the Open Core Network
 * Directly accessing the Postgres SQL database (read-only)
 
