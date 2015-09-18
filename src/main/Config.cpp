@@ -52,7 +52,6 @@ Config::Config() : NODE_SEED(SecretKey::random())
     MAX_CONCURRENT_SUBPROCESSES = 32;
     PARANOID_MODE = false;
     NODE_IS_VALIDATOR = false;
-    NETWORK_PASSPHRASE = "";
 
     DATABASE = "sqlite3://:memory:";
 }
