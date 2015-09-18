@@ -21,13 +21,13 @@ The Open Core Network is a fork of the [Stellar Consensus](http://www.stellar.or
 - Does not have a central authority
 - Does not have inflation
 - Does not have transaction fees
-- Does not use pass phrases
 - Does not need a "createAccount" transaction
 - Does not have a root account
 - Does not have a notion of an unsafe quorum
 - Requires axiomatic trust in configured validator nodes
 - Starts with a blank genesis ledger
 - Might bring peace to the world.
+- Always uses the same pass phrase (same as the public stellar network)
 - Stays experimental. Forever.
 
 # Getting Started
