@@ -48,7 +48,7 @@ const char* AccountFrame::kSQLCreateStatement3 =
     "CREATE INDEX signersaccount ON signers (accountid)";
 
 const char* AccountFrame::kSQLCreateStatement4 = "CREATE INDEX accountbalances "
-                                                 "ON Accounts (balance) WHERE "
+                                                 "ON accounts (balance) WHERE "
                                                  "balance >= 1000000000";
 
 AccountFrame::AccountFrame()
@@ -112,7 +112,13 @@ AccountFrame::isValid()
 bool
 AccountFrame::isAuthRequired() const
 {
-    return (mAccountEntry.flags & AUTH_REQUIRED_FLAG);
+    return (mAccountEntry.flags & AUTH_REQUIRED_FLAG) != 0;
+}
+
+bool
+AccountFrame::isImmutableAuth() const
+{
+    return (mAccountEntry.flags & AUTH_IMMUTABLE_FLAG) != 0;
 }
 
 int64_t
