@@ -1,4 +1,4 @@
-[![Build Status](https://travis-ci.org/stellar/stellar-core.svg?branch=auto)](https://travis-ci.org/stellar/stellar-core)
+[![Build Status](https://travis-ci.org/open-core/network.svg?branch=master)](https://travis-ci.org/open-core/network)
 
 > Genesis 1:27 - "So God created man in his own image, in the image of God he created him; male and female he created them."
 
