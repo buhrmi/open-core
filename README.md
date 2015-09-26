@@ -1,4 +1,4 @@
-[![Build Status](https://travis-ci.org/stellar/stellar-core.svg?branch=auto)](https://travis-ci.org/stellar/stellar-core)
+[![Build Status](https://travis-ci.org/open-core/network.svg?branch=master)](https://travis-ci.org/open-core/network)
 
 > Genesis 1:27 - "So God created man in his own image, in the image of God he created him; male and female he created them."
 
@@ -26,10 +26,7 @@ The Open Core Network is a fork of the [Stellar Consensus](http://www.stellar.or
 - Does not need a "createAccount" transaction
 - Does not have a root account
 - Does not have a notion of an unsafe quorum
-- Requires axiomatic trust in configured validator nodes
 - Starts with a blank genesis ledger
-- Might bring peace to the world.
-- Always uses the same pass phrase (same as the public stellar network)
 - Stays experimental. Forever.
 
 # Getting Started
