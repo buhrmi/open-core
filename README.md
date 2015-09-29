@@ -27,11 +27,11 @@ The Open Core Network is a fork of the [Stellar Consensus](http://www.stellar.or
 - Does not have a root account
 - Does not have a notion of an unsafe quorum
 - Starts with a blank genesis ledger
-- Stays experimental. Forever.
+- Is truly open
 
 # Getting Started
 
-## Warning: Requires Postgres 9.5
+## Warning: This prototype requires Postgres 9.5
 
 The code is using Postgres 9.5 `ON CONFLICT UPDATE` (aka upserts) feature. Your app will crash if you attempt to run against an earlier version.
 
