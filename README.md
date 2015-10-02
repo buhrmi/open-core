@@ -11,7 +11,7 @@ In Open Core, network forks are an encouraged, recognized, natural way to expres
 Users and developers can interact with the network in the following ways:
 
 * Through the official [open-core webapp](http://github.com/open-core/webapp)
-* Through client libraries, currently for [ruby](http://github.com/stellar/ruby-stellar-base) and [Javascript](http://github.com/stellar/js-stellar-base)
+* Through client libraries, currently for [Ruby](http://github.com/stellar/ruby-stellar-base), [Javascript](http://github.com/stellar/js-stellar-base) and [Go](https://github.com/stellar/go-stellar-base)
 * Through an instance of the [Stellar Horizon API](http://github.com/stellar/horizon) server running against the Open Core Network
 * Directly accessing the Postgres SQL database (read-only)
 
