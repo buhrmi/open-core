@@ -1,9 +1,6 @@
 [![Build Status](https://travis-ci.org/stellar/stellar-core.svg?branch=auto)](https://travis-ci.org/stellar/stellar-core)
 
-# Note this code is beta. 
-It is not ready yet for production.
- 
-# Core Consensus
+# stellar-core
 
 The Core Consensus is basically the same as the [Stellar Consensus](http://www.stellar.org/galaxy) with two small differences with huge implications:
 

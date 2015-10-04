@@ -149,6 +149,7 @@ LedgerManagerImpl::getStateHuman() const
 void
 LedgerManagerImpl::startNewLedger()
 {
+    DBTimeExcluder qtExclude(mApp);
     auto ledgerTime = mLedgerClose.TimeScope();
 
     LedgerHeader genesisHeader;
@@ -175,6 +176,7 @@ void
 LedgerManagerImpl::loadLastKnownLedger(
     function<void(asio::error_code const& ec)> handler)
 {
+    DBTimeExcluder qtExclude(mApp);
     auto ledgerTime = mLedgerClose.TimeScope();
 
     string lastLedger =
@@ -601,6 +603,7 @@ during replays.
 void
 LedgerManagerImpl::closeLedger(LedgerCloseData const& ledgerData)
 {
+    DBTimeExcluder qtExclude(mApp);
     CLOG(DEBUG, "Ledger") << "starting closeLedger() on ledgerSeq="
                           << mCurrentLedger->mHeader.ledgerSeq;
 

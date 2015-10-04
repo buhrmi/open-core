@@ -2,7 +2,7 @@
 title: History
 ---
 
-Stellar Core separates data into "current" and "historical."
+Stellar Core, or stellar-core, separates data into "current" and "historical."
 
 Current data is the subject of peer-to-peer messages--consensus is only concerned with the present,
 not the past. Current data _resides_ in a local SQL database paired with each stellar-core
@@ -36,7 +36,7 @@ may be FTP or SFTP servers, filesystem directories shared between stellar-core p
 Google Cloud Storage, Azure Blob storage or similar commodity object storage services.
 
 History archives are defined in a very lightweight fashion, in stellar-core's configuration file, by
-providing a pair of `get` and `put` command templates. Stellar-core will run the provided command
+providing a pair of `get` and `put` command templates. stellar-core will run the provided command
 template, with its own file names substituted for placeholders in the template, in order to get files
 from, and put files into, a given history archive. This interface is meant to support simple
 commands like `curl`, `wget`, `aws`, `gcutil`, `s3cmd`, `cp`, `scp`, `ftp` or similar. Several
@@ -45,15 +45,15 @@ examples are provided in the example configuration files.
 
 ## Serialization to XDR and gzip
 
-Stellar-core leans heavily on the XDR data format. This is an old, stable, standardized
+stellar-core leans heavily on the XDR data format. This is an old, stable, standardized
 serialization format, defined in RFC 4506 and used for several standard unix and internet protocols
 and formats.
 
 XDR is used for 3 related but different tasks, the first 2 of which are discussed elsewhere:
 
-  # Exchanging peer-to-peer network protocol messages and achieving consensus.
-  # Cryptographically hashing ledger entries, buckets, transactions, and similar values.
-  # Storing and retrieving history (discussed in this document).
+  * Exchanging peer-to-peer network protocol messages and achieving consensus.
+  * Cryptographically hashing ledger entries, buckets, transactions, and similar values.
+  * Storing and retrieving history (discussed in this document).
 
 When storing XDR files to history archives, stellar-core first applies gzip (RFC 1952) compression
 to the files. The resulting `.xdr.gz` files can be concatenated, accessed in streaming fashion, or
@@ -121,7 +121,7 @@ sequentially. Anyone wishing to audit or reconstruct the activity of stellar-cor
 history archive can simply poll the archive and consume new files as they arrive.
 
 All XDR encoding and decoding in stellar-core is done by code generated automatically from the
-associated [XDR schemas](../src/xdr); any other compliant XDR code generator should produce a
+associated [XDR schemas](/src/xdr); any other compliant XDR code generator should produce a
 deserializer that can read and write the same history. The XDR code generator used in stellar-core
 is developed independently, but [included in the source tree as a submodule](../lib/xdrpp).
 
@@ -130,7 +130,7 @@ is developed independently, but [included in the source tree as a submodule](../
 
 In addition to the considerations of interoperability and software flexibility presented above, a
 few additional, less obvious motives are at work in the design of the history system in stellar-core.
-A few reasons that the extra effort of configuring independent history archives is, in our judgment, worth its slight awkwardness: 
+A few reasons that the extra effort of configuring independent history archives is, in our judgment, worth its slight awkwardness:
 
   - Configuring independent history archives helps ensure valid backups get made. It is very easy to build a backup system that is not run
     frequently enough, only run in emergencies, or never run at all. Such systems tend to accumulate
@@ -138,7 +138,7 @@ A few reasons that the extra effort of configuring independent history archives 
     to use the _same code path_ that is making continuous, long-term flat-file backups, we help
     ensure the backup code _works_, and is being run on a regular schedule.
 
-  - This design reduces the risk of lost peers. Stellar-core peers are comparatively ephemeral: new ones can
+  - This design reduces the risk of lost peers. stellar-core peers are comparatively ephemeral: new ones can
     be brought online relatively quickly (only downloading missing buckets) and the state stored on
     a given peer is likely only one checkpoint, or 5 minutes, worth of unique data (the rest has
     been archived). While stellar-core is designed to run as a highly fault-tolerant replicated

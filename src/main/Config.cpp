@@ -20,7 +20,7 @@ Config::Config() : NODE_SEED(SecretKey::random())
     FORCE_SCP = false;
     REBUILD_DB = false;
     LEDGER_PROTOCOL_VERSION = 1;
-    OVERLAY_PROTOCOL_VERSION = 3;
+    OVERLAY_PROTOCOL_VERSION = 4;
     VERSION_STR = STELLAR_CORE_VERSION;
     DESIRED_BASE_RESERVE = 0;
 
@@ -48,6 +48,8 @@ Config::Config() : NODE_SEED(SecretKey::random())
     TARGET_PEER_CONNECTIONS = 20;
     MAX_PEER_CONNECTIONS = 50;
     PREFERRED_PEERS_ONLY = false;
+
+    MINIMUM_IDLE_PERCENT = 0;
 
     MAX_CONCURRENT_SUBPROCESSES = 32;
     PARANOID_MODE = false;
@@ -485,6 +487,18 @@ Config::load(std::string const& filename)
                 }
                 MAX_CONCURRENT_SUBPROCESSES =
                     (size_t)item.second->as<int64_t>()->value();
+            }
+            else if (item.first == "MINIMUM_IDLE_PERCENT")
+            {
+                if (!item.second->as<int64_t>() ||
+                    item.second->as<int64_t>()->value() > 100 ||
+                    item.second->as<int64_t>()->value() < 0)
+                {
+                    throw std::invalid_argument(
+                        "invalid MINIMUM_IDLE_PERCENT");
+                }
+                MINIMUM_IDLE_PERCENT =
+                    (uint32_t)item.second->as<int64_t>()->value();
             }
             else if (item.first == "HISTORY")
             {
