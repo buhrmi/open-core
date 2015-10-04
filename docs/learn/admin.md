@@ -2,7 +2,7 @@
 title: Administration
 ---
 
-Stellar Core is responsible for communicating directly with and/or maintaining 
+Stellar Core is responsible for communicating directly with and maintaining 
 the Stellar peer-to-peer network.
 
 ## Why run a node?
@@ -20,8 +20,11 @@ See [readme](https://github.com/stellar/stellar-core/blob/master/README.md) for 
 
 ## Configuring
 All configuration for stellar-core is done with a TOML file. By default 
-stellar-core loads `./stellar-core.cfg`, but you can specify a different file 
-to load on the command line:
+stellar-core loads 
+
+`./stellar-core.cfg`
+
+, but you can specify a different file to load on the command line:
 
 `$ stellar-core --conf betterfile.cfg` 
 
@@ -109,6 +112,8 @@ Advertise the public key so people can add it to their `QUORUM_SET` in their con
 If you don't include a `NODE_SEED` or set `NODE_IS_VALIDATOR=true`, you will still
 watch SCP and see all the data in the network but will not send validation messages.
 
+See a [list of other validators](https://github.com/stellar/docs/blob/master/validators.md).
+
 ## Database
 Stellar-core stores the state of the ledger in a SQL database. This DB should 
 either be a SQLite database or, for larger production instances, a separate 
@@ -152,6 +157,12 @@ least, if you are joining an existing network in a read-only capacity, you
 will still need to configure a `get` command to access that network's history 
 archives.
 
+If you configure a history archive to **put** to, then you must run:
+
+`$ stellar-core --newhist <historyarchive>`
+
+to initialize that archive before you start.
+
 # Recipes
 
 ## Joining an existing network
@@ -182,7 +193,8 @@ Run:
 
 `$ stellar-core --newhist <historyarchive>`
 
-on _one_ node, to initialize the history archive. Run:
+to initialize every history archive you are putting to. 
+Run:
 
 `$ stellar-core --newdb`
 
