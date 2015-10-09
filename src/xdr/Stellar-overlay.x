@@ -41,6 +41,19 @@ struct Hello
     uint256 nonce;
 };
 
+struct Hello2
+{
+    uint32 ledgerVersion;
+    uint32 overlayVersion;
+    uint32 overlayMinVersion;
+    Hash networkID;
+    string versionStr<100>;
+    int listeningPort;
+    NodeID peerID;
+    AuthCert cert;
+    uint256 nonce;
+};
+
 struct Auth
 {
     // Empty message, just to confirm
@@ -62,7 +75,8 @@ struct PeerAddress
         opaque ipv4[4];
     case IPv6:
         opaque ipv6[16];
-    } ip;
+    }
+    ip;
     uint32 port;
     uint32 numFailures;
 };
@@ -85,7 +99,11 @@ enum MessageType
     // SCP
     GET_SCP_QUORUMSET = 9,
     SCP_QUORUMSET = 10,
-    SCP_MESSAGE = 11
+    SCP_MESSAGE = 11,
+    GET_SCP_STATE = 12,
+
+    // new messages
+    HELLO2 = 13
 };
 
 struct DontHave
@@ -100,6 +118,8 @@ case ERROR_MSG:
     Error error;
 case HELLO:
     Hello hello;
+case HELLO2:
+    Hello2 hello2;
 case AUTH:
     Auth auth;
 case DONT_HAVE:
@@ -124,17 +144,18 @@ case SCP_QUORUMSET:
     SCPQuorumSet qSet;
 case SCP_MESSAGE:
     SCPEnvelope envelope;
+case GET_SCP_STATE:
+    uint32 getSCPLedgerSeq; // ledger seq requested ; if 0, requests the latest
 };
 
 union AuthenticatedMessage switch (uint32 v)
 {
 case 0:
     struct
-    {
-        uint64 sequence;
-        StellarMessage message;
-        HmacSha256Mac mac;
+{
+   uint64 sequence;
+   StellarMessage message;
+   HmacSha256Mac mac;
     } v0;
 };
-
 }

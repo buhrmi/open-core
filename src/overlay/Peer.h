@@ -68,6 +68,7 @@ class Peer : public std::enable_shared_from_this<Peer>,
     uint64_t mRecvMacSeq{0};
 
     std::string mRemoteVersion;
+    uint32_t mRemoteOverlayMinVersion;
     uint32_t mRemoteOverlayVersion;
     unsigned short mRemoteListeningPort;
 
@@ -97,6 +98,7 @@ class Peer : public std::enable_shared_from_this<Peer>,
     medida::Timer& mRecvGetSCPQuorumSetTimer;
     medida::Timer& mRecvSCPQuorumSetTimer;
     medida::Timer& mRecvSCPMessageTimer;
+    medida::Timer& mRecvGetSCPStateTimer;
 
     medida::Meter& mSendErrorMeter;
     medida::Meter& mSendHelloMeter;
@@ -108,6 +110,7 @@ class Peer : public std::enable_shared_from_this<Peer>,
     medida::Meter& mSendTxSetMeter;
     medida::Meter& mSendTransactionMeter;
     medida::Meter& mSendGetSCPQuorumSetMeter;
+    medida::Meter& mSendGetSCPStateMeter;
     medida::Meter& mSendSCPQuorumSetMeter;
 
     medida::Meter& mDropInConnectHandlerMeter;
@@ -134,10 +137,11 @@ class Peer : public std::enable_shared_from_this<Peer>,
     virtual void recvError(StellarMessage const& msg);
     // returns false if we should drop this peer
     void noteHandshakeSuccessInPeerRecord();
-    void recvHello(StellarMessage const& msg);
     void recvAuth(StellarMessage const& msg);
     void recvDontHave(StellarMessage const& msg);
     void recvGetPeers(StellarMessage const& msg);
+    void recvHello(Hello const& elo);
+    void recvHello2(Hello2 const& elo);
     void recvPeers(StellarMessage const& msg);
 
     void recvGetTxSet(StellarMessage const& msg);
@@ -146,8 +150,10 @@ class Peer : public std::enable_shared_from_this<Peer>,
     void recvGetSCPQuorumSet(StellarMessage const& msg);
     void recvSCPQuorumSet(StellarMessage const& msg);
     void recvSCPMessage(StellarMessage const& msg);
+    void recvGetSCPState(StellarMessage const& msg);
 
     void sendHello();
+    void sendHello2();
     void sendAuth();
     void sendSCPQuorumSet(SCPQuorumSetPtr qSet);
     void sendDontHave(MessageType type, uint256 const& itemID);
@@ -184,6 +190,7 @@ class Peer : public std::enable_shared_from_this<Peer>,
     void sendGetTxSet(uint256 const& setID);
     void sendGetQuorumSet(uint256 const& setID);
     void sendGetPeers();
+    void sendGetScpState(uint32 ledgerSeq);
 
     void sendMessage(StellarMessage const& msg);
 
@@ -206,6 +213,12 @@ class Peer : public std::enable_shared_from_this<Peer>,
     getRemoteVersion() const
     {
         return mRemoteVersion;
+    }
+
+    uint32_t
+    getRemoteOverlayMinVersion() const
+    {
+        return mRemoteOverlayMinVersion;
     }
 
     uint32_t
