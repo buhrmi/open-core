@@ -34,8 +34,8 @@ class TestSCP : public SCPDriver
   public:
     SCP mSCP;
 
-    TestSCP(SecretKey const& secretKey, SCPQuorumSet const& qSetLocal)
-        : mSCP(*this, secretKey, true, qSetLocal)
+    TestSCP(SecretKey const& secretKey, SCPQuorumSet const& qSetLocal, bool isValidator=true)
+        : mSCP(*this, secretKey, isValidator, qSetLocal)
     {
         mPriorityLookup = [&](NodeID const& n)
         {
@@ -109,13 +109,13 @@ class TestSCP : public SCPDriver
     bool
     bumpState(uint64 slotIndex, Value const& v)
     {
-        return mSCP.getSlot(slotIndex)->bumpState(v, true);
+        return mSCP.getSlot(slotIndex, true)->bumpState(v, true);
     }
 
     bool
     nominate(uint64 slotIndex, Value const& value, bool timedout)
     {
-        return mSCP.getSlot(slotIndex)->nominate(value, value, timedout);
+        return mSCP.getSlot(slotIndex, true)->nominate(value, value, timedout);
     }
 
     // only used by nomination protocol
@@ -175,7 +175,7 @@ class TestSCP : public SCPDriver
     Value const&
     getLatestCompositeCandidate(uint64 slotIndex)
     {
-        return mSCP.getSlot(slotIndex)->getLatestCompositeCandidate();
+        return mSCP.getSlot(slotIndex, true)->getLatestCompositeCandidate();
     }
 
     void
@@ -432,6 +432,30 @@ TEST_CASE("ballot protocol core5", "[scp][ballotprotocol]")
         scp.receiveEnvelope(prepared1);
         REQUIRE(scp.mEnvs.size() == 3);
     };
+
+    SECTION("non validator watching the network")
+    {
+        SIMULATION_CREATE_NODE(NV);
+        TestSCP scpNV(vNVSecretKey, qSet, false);
+        scpNV.storeQuorumSet(std::make_shared<SCPQuorumSet>(qSet));
+
+        SCPBallot b(1, xValue);
+        REQUIRE(scpNV.bumpState(0, xValue));
+        REQUIRE(scpNV.mEnvs.size() == 1);
+        verifyPrepare(scpNV.mEnvs[0], vNVSecretKey, qSetHash, 0, b);
+        auto ext1 = makeExternalize(v1SecretKey, qSetHash, 0, b, 1);
+        auto ext2 = makeExternalize(v2SecretKey, qSetHash, 0, b, 1);
+        auto ext3 = makeExternalize(v3SecretKey, qSetHash, 0, b, 1);
+        auto ext4 = makeExternalize(v4SecretKey, qSetHash, 0, b, 1);
+        scpNV.receiveEnvelope(ext1);
+        scpNV.receiveEnvelope(ext2);
+        scpNV.receiveEnvelope(ext3);
+        REQUIRE(scpNV.mEnvs.size() == 2);
+        verifyConfirm(scpNV.mEnvs[1], vNVSecretKey, qSetHash, 0, 1, b, 1);
+        scpNV.receiveEnvelope(ext4);
+        REQUIRE(scpNV.mEnvs.size() == 3);
+        verifyExternalize(scpNV.mEnvs[2], vNVSecretKey, qSetHash, 0, b, b.counter);
+    }
 
     SECTION("bumpState x")
     {
@@ -1439,6 +1463,24 @@ TEST_CASE("ballot protocol core5", "[scp][ballotprotocol]")
         REQUIRE(scp.mEnvs.size() == 6);
         verifyPrepare(scp.mEnvs[5], v0SecretKey, qSetHash, 0, x3, &x2, 0, 2);
     }
+    SECTION("restore ballot protocol")
+    {
+        TestSCP scp2(v0SecretKey, qSet);
+        scp2.storeQuorumSet(std::make_shared<SCPQuorumSet>(qSet));
+        SCPBallot b(2, xValue);
+        SECTION("prepare")
+        {
+            scp2.mSCP.setStateFromEnvelope(0, makePrepare(v0SecretKey, qSetHash, 0, b));
+        }
+        SECTION("confirm")
+        {
+            scp2.mSCP.setStateFromEnvelope(0, makeConfirm(v0SecretKey, qSetHash, 0, 2, b, 3));
+        }
+        SECTION("externalize")
+        {
+            scp2.mSCP.setStateFromEnvelope(0, makeExternalize(v0SecretKey, qSetHash, 0, b, 3));
+        }
+    }
 }
 
 TEST_CASE("nomination tests core5", "[scp][nominationprotocol]")
@@ -1534,12 +1576,12 @@ TEST_CASE("nomination tests core5", "[scp][nominationprotocol]")
             scp.receiveEnvelope(acc4);
             REQUIRE(scp.mEnvs.size() == 3);
 
+            std::vector<Value> votes2 = votes;
+            votes2.emplace_back(yValue);
+
             SECTION("nominate x -> accept x -> prepare (x) ; others accepted y "
                     "-> update latest to (z=x+y)")
             {
-                std::vector<Value> votes2 = votes;
-                votes2.emplace_back(yValue);
-
                 SCPEnvelope acc1_2 =
                     makeNominate(v1SecretKey, qSetHash, 0, votes2, votes2);
                 SCPEnvelope acc2_2 =
@@ -1569,6 +1611,63 @@ TEST_CASE("nomination tests core5", "[scp][nominationprotocol]")
 
                 scp.receiveEnvelope(acc4_2);
                 REQUIRE(scp.mEnvs.size() == 4);
+            }
+            SECTION("nomination - restored state")
+            {
+                TestSCP scp2(v0SecretKey, qSet);
+                scp2.storeQuorumSet(std::make_shared<SCPQuorumSet>(qSet));
+
+                // tests if nomination proceeds like normal
+                // nominates x
+                auto nominationRestore = [&]()
+                {
+                    // restores from the previous state
+                    scp2.mSCP.setStateFromEnvelope(0, makeNominate(v0SecretKey, qSetHash, 0, votes,
+                                                                   accepted));
+                    // tries to start nomination with yValue
+                    REQUIRE(scp2.nominate(0, yValue, false));
+
+                    REQUIRE(scp2.mEnvs.size() == 1);
+                    verifyNominate(scp2.mEnvs[0], v0SecretKey, qSetHash, 0, votes2,
+                                   accepted);
+
+                    // other nodes only vote for 'x'
+                    scp2.receiveEnvelope(nom1);
+                    scp2.receiveEnvelope(nom2);
+                    REQUIRE(scp2.mEnvs.size() == 1);
+                    // this causes 'x' to be accepted (quorum)
+
+                    scp2.receiveEnvelope(nom3);
+
+                    scp2.mExpectedCandidates.emplace(xValue);
+                    scp2.mCompositeValue = xValue;
+
+                    scp2.receiveEnvelope(acc1);
+                    scp2.receiveEnvelope(acc2);
+                    REQUIRE(scp2.mEnvs.size() == 1);
+
+                    scp2.mCompositeValue = xValue;
+
+                    // this causes the node to update its composite value to x
+                    scp2.receiveEnvelope(acc3);
+                };
+
+                SECTION("ballot protocol not started")
+                {
+                    nominationRestore();
+                    // nomination ended up starting the ballot protocol
+                    REQUIRE(scp2.mEnvs.size() == 2);
+
+                    verifyPrepare(scp2.mEnvs[1], v0SecretKey, qSetHash, 0,
+                                  SCPBallot(1, xValue));
+                }
+                SECTION("ballot protocol started (on value y)")
+                {
+                    scp2.mSCP.setStateFromEnvelope(0, makePrepare(v0SecretKey, qSetHash, 0, SCPBallot(1, yValue)));
+                    nominationRestore();
+                    // nomination didn't do anything (already working on y)
+                    REQUIRE(scp2.mEnvs.size() == 1);
+                }
             }
         }
         SECTION("self nominates 'x', others nominate y -> prepare y")
