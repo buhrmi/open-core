@@ -102,6 +102,8 @@ ApplicationImpl::ApplicationImpl(VirtualClock& clock, Config const& cfg)
         mConfig.FORCE_SCP = true;
     }
 
+    mDatabase->upgradeToCurrentSchema();
+
     mTmpDirManager = make_unique<TmpDirManager>(cfg.TMP_DIR_PATH);
     mOverlayManager = OverlayManager::create(*this);
     mLedgerManager = LedgerManager::create(*this);
@@ -430,6 +432,18 @@ ApplicationImpl::getStateHuman() const
         "Booting",     "Joining SCP", "Connected",
         "Catching up", "Synced!",     "Stopping"};
     return std::string(stateStrings[getState()]);
+}
+
+std::string 
+ApplicationImpl::getExtraStateInfo() const
+{
+    return std::string(mExtraStateInfo);
+}
+
+void
+ApplicationImpl::setExtraStateInfo(std::string const& stateStr)
+{
+    mExtraStateInfo = stateStr;
 }
 
 bool
