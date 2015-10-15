@@ -129,6 +129,10 @@ LedgerManagerImpl::setState(State s)
         mApp.syncOwnMetrics();
         CLOG(INFO, "Ledger") << "Changing state " << oldState << " -> "
                              << getStateHuman();
+        if(mState != LM_CATCHING_UP_STATE)
+        { 
+            mApp.setExtraStateInfo(std::string());
+        }
     }
 }
 
@@ -350,10 +354,14 @@ LedgerManagerImpl::externalizeValue(LedgerCloseData const& ledgerData)
         else
         {
             // Out of sync, buffer what we just heard and start catchup.
-            CLOG(INFO, "Ledger") << "Lost sync, local LCL is "
+            std::stringstream stateStr;
+            stateStr << "Lost sync, local LCL is "
                                  << mLastClosedLedger.header.ledgerSeq
                                  << ", network closed ledger "
                                  << ledgerData.mLedgerSeq;
+
+            CLOG(INFO, "Ledger") << stateStr.str();
+            mApp.setExtraStateInfo(stateStr.str());
 
             assert(mSyncingLedgers.size() == 0);
             mSyncingLedgers.push_back(ledgerData);
@@ -368,33 +376,32 @@ LedgerManagerImpl::externalizeValue(LedgerCloseData const& ledgerData)
         break;
 
     case LedgerManager::LM_CATCHING_UP_STATE:
-        if (mSyncingLedgers.empty() ||
-            mSyncingLedgers.back().mLedgerSeq + 1 == ledgerData.mLedgerSeq)
+    {
+        bool contiguous =
+            (mSyncingLedgers.empty() ||
+             mSyncingLedgers.back().mLedgerSeq + 1 == ledgerData.mLedgerSeq);
+
+        if (contiguous)
         {
             // Normal close while catching up
             mSyncingLedgers.push_back(ledgerData);
             mSyncingLedgersSize.set_count(mSyncingLedgers.size());
-
-            uint64_t now = mApp.timeNow();
-            uint64_t eta = mSyncingLedgers.front().mValue.closeTime +
-                           mApp.getHistoryManager().nextCheckpointCatchupProbe(
-                               mSyncingLedgers.front().mLedgerSeq);
-
-            CLOG(INFO, "Ledger") << "Catchup awaiting checkpoint"
-                                 << " (ETA: " << (now > eta ? 0 : (eta - now))
-                                 << " seconds), buffering close of ledger "
-                                 << ledgerData.mLedgerSeq;
         }
         else
         {
             // Out-of-order close while catching up; timeout / network failure?
-            CLOG(INFO, "Ledger")
+            CLOG(WARNING, "Ledger")
                 << "Out-of-order close during catchup, buffered to "
                 << mSyncingLedgers.back().mLedgerSeq << " but network closed "
                 << ledgerData.mLedgerSeq;
-            CLOG(WARNING, "Ledger") << "this round of catchup will fail.";
+
+            CLOG(WARNING, "Ledger")
+                << "this round of catchup will fail and restart.";
         }
-        break;
+
+        mApp.getHistoryManager().logAndUpdateCatchupStatus(contiguous);
+    }
+    break;
 
     default:
         assert(false);
@@ -723,6 +730,7 @@ LedgerManagerImpl::closeLedger(LedgerCloseData const& ledgerData)
     hm.maybeQueueHistoryCheckpoint();
 
     // step 2
+    mApp.getDatabase().clearPreparedStatementCache();
     txscope.commit();
 
     // step 3
