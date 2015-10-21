@@ -129,9 +129,9 @@ LedgerManagerImpl::setState(State s)
         mApp.syncOwnMetrics();
         CLOG(INFO, "Ledger") << "Changing state " << oldState << " -> "
                              << getStateHuman();
-        if(mState != LM_CATCHING_UP_STATE)
-        { 
-            mApp.setExtraStateInfo(std::string());
+        if (mState != LM_CATCHING_UP_STATE)
+        {
+            mApp.getHistoryManager().logAndUpdateStatus(true);
         }
     }
 }
@@ -228,8 +228,8 @@ LedgerManagerImpl::loadLastKnownLedger(
 
             auto missing =
                 mApp.getBucketManager().checkForMissingBucketsFiles(has);
-            auto pubmissing =
-                mApp.getHistoryManager().getMissingBucketsReferencedByPublishQueue();
+            auto pubmissing = mApp.getHistoryManager()
+                                  .getMissingBucketsReferencedByPublishQueue();
             missing.insert(missing.end(), pubmissing.begin(), pubmissing.end());
             if (!missing.empty())
             {
@@ -353,14 +353,10 @@ LedgerManagerImpl::externalizeValue(LedgerCloseData const& ledgerData)
         else
         {
             // Out of sync, buffer what we just heard and start catchup.
-            std::stringstream stateStr;
-            stateStr << "Lost sync, local LCL is "
+            CLOG(INFO, "Ledger") << "Lost sync, local LCL is "
                                  << mLastClosedLedger.header.ledgerSeq
                                  << ", network closed ledger "
                                  << ledgerData.mLedgerSeq;
-
-            CLOG(INFO, "Ledger") << stateStr.str();
-            mApp.setExtraStateInfo(stateStr.str());
 
             assert(mSyncingLedgers.size() == 0);
             mSyncingLedgers.push_back(ledgerData);
@@ -398,7 +394,7 @@ LedgerManagerImpl::externalizeValue(LedgerCloseData const& ledgerData)
                 << "this round of catchup will fail and restart.";
         }
 
-        mApp.getHistoryManager().logAndUpdateCatchupStatus(contiguous);
+        mApp.getHistoryManager().logAndUpdateStatus(contiguous);
     }
     break;
 
@@ -725,7 +721,7 @@ LedgerManagerImpl::closeLedger(LedgerCloseData const& ledgerData)
     // 4. GC unreferenced buckets. Only do this once publishes are in progress.
 
     // step 1
-    auto &hm = mApp.getHistoryManager();
+    auto& hm = mApp.getHistoryManager();
     hm.maybeQueueHistoryCheckpoint();
 
     // step 2
@@ -733,7 +729,10 @@ LedgerManagerImpl::closeLedger(LedgerCloseData const& ledgerData)
     txscope.commit();
 
     // step 3
-    hm.publishQueuedHistory([](asio::error_code const&){});
+    hm.publishQueuedHistory([](asio::error_code const&)
+                            {
+                            });
+    hm.logAndUpdateStatus(true);
 
     // step 4
     mApp.getBucketManager().forgetUnreferencedBuckets();
@@ -859,7 +858,7 @@ LedgerManagerImpl::applyTransactions(std::vector<TransactionFramePtr>& txs,
             CLOG(DEBUG, "Tx")
                 << " tx#" << index << " = " << hexAbbrev(tx->getFullHash())
                 << " txseq=" << tx->getSeqNum() << " (@ "
-                << PubKeyUtils::toShortString(tx->getSourceID()) << ")";
+                << mApp.getConfig().toShortString(tx->getSourceID()) << ")";
 
             if (tx->apply(delta, tm, mApp))
             {

@@ -38,11 +38,10 @@ namespace stellar
 
 using namespace std;
 
-static string kSQLCreateStatement =
-    "CREATE TABLE IF NOT EXISTS publishqueue ("
-    "ledger   INTEGER PRIMARY KEY,"
-    "state    TEXT"
-    "); ";
+static string kSQLCreateStatement = "CREATE TABLE IF NOT EXISTS publishqueue ("
+                                    "ledger   INTEGER PRIMARY KEY,"
+                                    "state    TEXT"
+                                    "); ";
 
 void
 HistoryManager::dropAll(Database& db)
@@ -266,12 +265,38 @@ HistoryManagerImpl::nextCheckpointCatchupProbe(uint32_t ledger)
 }
 
 void
-HistoryManagerImpl::logAndUpdateCatchupStatus(bool contiguous)
+HistoryManagerImpl::logAndUpdateStatus(bool contiguous)
 {
     if (mCatchup)
     {
         mCatchup->logAndUpdateStatus(contiguous);
     }
+    else if (mPublish)
+    {
+        auto qlen = mPublish->publishQueueLength();
+        std::stringstream stateStr;
+        if (qlen > 0)
+        {
+            stateStr << "Publishing " << qlen << " queued checkpoints"
+                     << " [" << mPublish->minQueuedSnapshotLedger() << "-"
+                     << mPublish->maxQueuedSnapshotLedger() << "]";
+            CLOG(INFO, "History") << stateStr.str();
+        }
+        else
+        {
+            mApp.setExtraStateInfo(stateStr.str());
+        }
+    }
+}
+
+size_t
+HistoryManagerImpl::publishQueueLength() const
+{
+    if (mPublish)
+    {
+        return mPublish->publishQueueLength();
+    }
+    return 0;
 }
 
 string const&
@@ -532,8 +557,7 @@ HistoryManagerImpl::queueCurrentHistory()
     auto has = getLastClosedHistoryArchiveState();
 
     auto ledger = has.currentLedger;
-    CLOG(DEBUG, "History")
-        << "Queueing publish state for ledger " << ledger;
+    CLOG(DEBUG, "History") << "Queueing publish state for ledger " << ledger;
     auto state = has.toString();
     auto timer = mApp.getDatabase().getInsertTimer("publishqueue");
     auto prep = mApp.getDatabase().getPreparedStatement(
@@ -552,7 +576,9 @@ HistoryManagerImpl::queueCurrentHistory()
     // into the in-memory publish queue in order to preserve those
     // merges-in-progress, avoid restarting them.
 
-    takeSnapshotAndQueue(has, [](asio::error_code const&){});
+    takeSnapshotAndQueue(has, [](asio::error_code const&)
+                         {
+                         });
 }
 
 void
@@ -563,13 +589,11 @@ HistoryManagerImpl::takeSnapshotAndQueue(
     mPublishQueue.Mark();
     auto ledgerSeq = has.currentLedger;
 
-    CLOG(DEBUG, "History")
-        << "Activating publish for ledger " << ledgerSeq;
+    CLOG(DEBUG, "History") << "Activating publish for ledger " << ledgerSeq;
 
     auto snap = PublishStateMachine::takeSnapshot(mApp, has);
     if (mPublish->queueSnapshot(
-            snap,
-            [this, ledgerSeq, handler](asio::error_code const& ec)
+            snap, [this, ledgerSeq, handler](asio::error_code const& ec)
             {
                 if (ec)
                 {
@@ -601,8 +625,7 @@ HistoryManagerImpl::publishQueuedHistory(
     uint32_t maxLedger = mPublish->maxQueuedSnapshotLedger();
     std::string state;
 
-    CLOG(TRACE, "History")
-        << "Max active publish " << maxLedger;
+    CLOG(TRACE, "History") << "Max active publish " << maxLedger;
 
     auto prep = mApp.getDatabase().getPreparedStatement(
         "SELECT state FROM publishqueue"

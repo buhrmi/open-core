@@ -51,6 +51,11 @@ class HerderImpl : public Herder, public SCPDriver
     // restores SCP state based on the last messages saved on disk
     void restoreSCPState() override;
 
+    SCP&
+    getSCP()
+    {
+        return mSCP;
+    }
     // SCP methods
 
     void signEnvelope(SCPEnvelope& envelope) override;
@@ -60,6 +65,7 @@ class HerderImpl : public Herder, public SCPDriver
 
     Value extractValidValue(uint64 slotIndex, Value const& value) override;
 
+    std::string toShortString(PublicKey const& pk) const override;
     std::string getValueString(Value const& v) const override;
 
     void ballotDidHearFromQuorum(uint64 slotIndex,
@@ -109,7 +115,8 @@ class HerderImpl : public Herder, public SCPDriver
 
     void triggerNextLedger(uint32_t ledgerSeqToTrigger) override;
 
-    bool isQuorumSetSane(NodeID const& nodeID, SCPQuorumSet const& qSet) override;
+    bool isQuorumSetSane(NodeID const& nodeID,
+                         SCPQuorumSet const& qSet) override;
 
     void dumpInfo(Json::Value& ret) override;
 

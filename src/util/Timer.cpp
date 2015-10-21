@@ -43,18 +43,22 @@ VirtualClock::maybeSetRealtimer()
 {
     if (mMode == REAL_TIME)
     {
-        mRealTimer.expires_at(next());
-        mRealTimer.async_wait([this](asio::error_code const& ec)
-                              {
-                                  if (ec == asio::error::operation_aborted)
+        auto nextp = next();
+        if (nextp != mRealTimer.expires_at())
+        {
+            mRealTimer.expires_at(nextp);
+            mRealTimer.async_wait([this](asio::error_code const& ec)
                                   {
-                                      ++this->nRealTimerCancelEvents;
-                                  }
-                                  else
-                                  {
-                                      this->advanceToNow();
-                                  }
-                              });
+                                      if (ec == asio::error::operation_aborted)
+                                      {
+                                          ++this->nRealTimerCancelEvents;
+                                      }
+                                      else
+                                      {
+                                          this->advanceToNow();
+                                      }
+                                  });
+        }
     }
 }
 
@@ -148,9 +152,10 @@ VirtualClock::enqueue(shared_ptr<VirtualClockEvent> ve)
     {
         return;
     }
+    assertThreadIsMain();
     // LOG(DEBUG) << "VirtualClock::enqueue";
     mEvents.emplace(ve);
-    assertThreadIsMain();
+    maybeSetRealtimer();
 }
 
 void
@@ -187,6 +192,7 @@ VirtualClock::flushCancelledEvents()
     }
     mFlushesIgnored = 0;
     mEvents = PrQueue(toKeep.begin(), toKeep.end());
+    maybeSetRealtimer();
 }
 
 bool
@@ -233,16 +239,24 @@ VirtualClock::crank(bool block)
     nRealTimerCancelEvents = 0;
     size_t nWorkDone = 0;
 
-    nWorkDone += mIOService.poll();
-    noteCrankOccurred(nWorkDone == 0);
-
     if (mMode == REAL_TIME)
     {
         // Fire all pending timers.
         nWorkDone += advanceToNow();
     }
 
-    nWorkDone += mIOService.poll();
+    // pick up some work off the IO queue
+    // calling mIOService.poll() here may introduce unbounded delays
+    // to trigger timers
+    const size_t WORK_BATCH_SIZE = 10;
+    size_t lastPoll;
+    size_t i = 0;
+    do
+    {
+        lastPoll = mIOService.poll_one();
+        nWorkDone += lastPoll;
+    } while (lastPoll != 0 && ++i < WORK_BATCH_SIZE);
+
     nWorkDone -= nRealTimerCancelEvents;
 
     if (mMode == VIRTUAL_TIME && nWorkDone == 0)
@@ -256,6 +270,8 @@ VirtualClock::crank(bool block)
     {
         nWorkDone += mIOService.run_one();
     }
+
+    noteCrankOccurred(nWorkDone == 0);
 
     return nWorkDone;
 }
@@ -300,9 +316,8 @@ VirtualClock::recentIdleCrankPercent() const
         (100ULL * static_cast<uint64_t>(mRecentIdleCrankCount)) /
         static_cast<uint64_t>(mRecentCrankCount));
 
-    LOG(DEBUG) << "Estimated clock loop idle: " << v
-               << "% (" << mRecentIdleCrankCount
-               << "/" << mRecentCrankCount << ")";
+    LOG(DEBUG) << "Estimated clock loop idle: " << v << "% ("
+               << mRecentIdleCrankCount << "/" << mRecentCrankCount << ")";
 
     // This should _really_ never be >100, it's a bug in our code if so.
     assert(v <= 100);

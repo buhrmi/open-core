@@ -261,8 +261,13 @@ class HistoryManager
     virtual uint64_t nextCheckpointCatchupProbe(uint32_t ledger) = 0;
 
     // Emit a log message and call app.setExtraStateInfo() to
-    // describe current catchup state, given a network ledger-close.
-    virtual void logAndUpdateCatchupStatus(bool contiguous) = 0;
+    // describe current catchup/publish state. The `contiguous` argument
+    // is passed in to describe whether the ledger-manager's view of
+    // current catchup tasks is currently contiguous or discontiguous.
+    virtual void logAndUpdateStatus(bool contiguous) = 0;
+
+    // Return the length of the current publishing queue.
+    virtual size_t publishQueueLength() const = 0;
 
     // Verify that a file has a given hash.
     virtual void
@@ -321,9 +326,8 @@ class HistoryManager
     // Returns the number of publishes initiated, which is the same number
     // as the number of times the provided handler will be called (once for
     // each, as they complete).
-    virtual size_t
-    publishQueuedHistory(std::function<void(asio::error_code const&)>
-                         handler) = 0;
+    virtual size_t publishQueuedHistory(
+        std::function<void(asio::error_code const&)> handler) = 0;
 
     // Return the set of buckets referenced by the persistent (DB) publish
     // queue that are not present in the BucketManager. These need to be

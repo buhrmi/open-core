@@ -8,6 +8,7 @@
 #include <memory>
 #include <map>
 #include "crypto/SecretKey.h"
+#include "lib/util/cpptoml.h"
 
 #define DEFAULT_PEER_PORT 11625
 
@@ -18,6 +19,10 @@ class HistoryArchive;
 class Config : public std::enable_shared_from_this<Config>
 {
     void validateConfig();
+    void loadQset(std::shared_ptr<cpptoml::toml_group> group,
+                  SCPQuorumSet& qset, int level);
+
+    void parseNodeID(std::string configStr, PublicKey& retKey);
 
   public:
     typedef std::shared_ptr<Config> pointer;
@@ -72,11 +77,19 @@ class Config : public std::enable_shared_from_this<Config>
     // will make your history archives incompatible with those of anyone else.
     bool ARTIFICIALLY_ACCELERATE_TIME_FOR_TESTING;
 
+    // A config parameter to override the close time (in seconds). Do not use
+    // in production as it may render the network unstable.
+    uint32 ARTIFICIALLY_SET_CLOSE_TIME_FOR_TESTING;
+
     // A config parameter that avoids resolving FutureBuckets before writing
     // them to the database's persistent state; this option exists only
     // for stress-testing the ability to resume from an interrupted merge,
     // and should be false in all normal cases.
     bool ARTIFICIALLY_PESSIMIZE_MERGES_FOR_TESTING;
+
+    // A config to allow connections to localhost
+    // this should only be enabled when testing as it's a security issue
+    bool ALLOW_LOCALHOST_FOR_TESTING;
 
     // This is the number of failures you want to be able to tolerate.
     // You will need at least 3f+1 nodes in your quorum set.
@@ -142,6 +155,8 @@ class Config : public std::enable_shared_from_this<Config>
     bool NODE_IS_VALIDATOR;
     stellar::SCPQuorumSet QUORUM_SET;
 
+    std::map<std::string, std::string> VALIDATOR_NAMES;
+
     // History config
     std::map<std::string, std::shared_ptr<HistoryArchive>> HISTORY;
 
@@ -154,5 +169,7 @@ class Config : public std::enable_shared_from_this<Config>
     Config();
 
     void load(std::string const& filename);
+
+    std::string toShortString(PublicKey const& pk) const;
 };
 }
