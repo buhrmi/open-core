@@ -1,3 +1,5 @@
+# NOTE: This experiment is not in active development anymore. I've concluded it was a success and will investigate a re-implementation  including the [web app](http://github.com/buhrmi/open-core-webapp) if I can scrap together some funds.
+
 [![Build Status](https://travis-ci.org/open-core/network.svg?branch=master)](https://travis-ci.org/open-core/network)
 
 > Genesis 1:27 - "So God created man in his own image, in the image of God he created him; male and female he created them."
