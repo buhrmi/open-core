@@ -1,8 +1,6 @@
-# This project is not in active development anymore and the servers have been taken down. This project is up for grabs including the [web app](http://github.com/buhrmi/open-core-webapp) if we can scrap together some funds.
+#### Note, this project is not in active development anymore and the servers have been taken down. If I can scrap together some funds, I'd probably pick it up again including the [web app](http://github.com/buhrmi/open-core-webapp).
 
 [![Build Status](https://travis-ci.org/open-core/network.svg?branch=master)](https://travis-ci.org/open-core/network)
-
-> Genesis 1:27 - "So God created man in his own image, in the image of God he created him; male and female he created them."
 
 # open-core/network
 
