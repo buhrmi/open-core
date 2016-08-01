@@ -1,6 +1,4 @@
-#### Note, this project is not in active development anymore and the servers have been taken down. If I can scrap together some funds, I'd probably pick it up again including the [web app](http://github.com/buhrmi/open-core-webapp).
-
-#### Check out the global [Consensus Network](http://github.com/buhrmi/consensus) project instead.
+#### Note, this project is not in active development anymore and the servers have been taken down. If I can scrap together some funds, I'd probably pick it up again including the [web app](http://github.com/buhrmi/open-core-webapp). If you or your company think that this is a valuable project and interested in funding it, please get in touch.
 
 [![Build Status](https://travis-ci.org/open-core/network.svg?branch=master)](https://travis-ci.org/open-core/network)
 
