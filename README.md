@@ -6,8 +6,6 @@
 
 The Open Core Network is a network of connected peers that work together to maintain consensus over the state of a globally synchronized cryptographic ledger. Users can create, sign and submit transactions into the network and query its replicated database for information.
 
-In Open Core, network forks are an encouraged, recognized, natural way to express disagreement among peers. They are not viewed as a harmful event.
-
 Users and developers can interact with the network in the following ways:
 
 * Through the official [open-core webapp](http://github.com/open-core/webapp)
