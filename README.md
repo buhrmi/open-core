@@ -1,5 +1,3 @@
-#### Note, this project is not in active development anymore
-
 [![Build Status](https://travis-ci.org/open-core/network.svg?branch=master)](https://travis-ci.org/open-core/network)
 
 # open-core/network
