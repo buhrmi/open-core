@@ -27,8 +27,6 @@ The Open Core Network is a fork of the [Stellar Consensus](http://www.stellar.or
 
 # Getting Started
 
-The code is using Postgres 9.5 `ON CONFLICT UPDATE` (aka upserts) feature. Your app will crash if you attempt to run against an earlier version of Postgres.
-
 Installation instructions ---> [HERE](https://github.com/buhrmi/core/blob/master/INSTALL.md)
 
 After installation, use [this configuration file](https://github.com/buhrmi/core/blob/master/docs/open-core.cfg) to configure your node to connect to the network. Note that this config file pre-configures my personal validator node (validator.open-core.org) in the quorum. DO NOT USE IT if you don't trust this node.
