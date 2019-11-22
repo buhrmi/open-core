@@ -4,9 +4,10 @@
 // under the Apache License, Version 2.0. See the COPYING file at the root
 // of this distribution or at http://www.apache.org/licenses/LICENSE-2.0
 
+#include "bucket/PublishQueueBuckets.h"
 #include "history/HistoryManager.h"
-#include "history/CatchupStateMachine.h"
-#include "history/PublishStateMachine.h"
+#include "util/TmpDir.h"
+#include "work/Work.h"
 #include <memory>
 
 namespace medida
@@ -18,96 +19,78 @@ namespace stellar
 {
 
 class Application;
+class Work;
 
 class HistoryManagerImpl : public HistoryManager
 {
     Application& mApp;
     std::unique_ptr<TmpDir> mWorkDir;
-    std::unique_ptr<PublishStateMachine> mPublish;
-    std::shared_ptr<CatchupStateMachine> mCatchup;
-    bool mManualCatchup{false};
+    std::shared_ptr<BasicWork> mPublishWork;
 
-    medida::Meter& mPublishSkip;
-    medida::Meter& mPublishQueue;
-    medida::Meter& mPublishDelay;
-    medida::Meter& mPublishStart;
+    PublishQueueBuckets mPublishQueueBuckets;
+    bool mPublishQueueBucketsFilled{false};
+
+    int mPublishQueued{0};
     medida::Meter& mPublishSuccess;
     medida::Meter& mPublishFailure;
 
-    medida::Meter& mCatchupStart;
-    medida::Meter& mCatchupSuccess;
-    medida::Meter& mCatchupFailure;
+    medida::Timer& mEnqueueToPublishTimer;
+    std::unordered_map<uint32_t, std::chrono::steady_clock::time_point>
+        mEnqueueTimes;
+
+    PublishQueueBuckets::BucketCount loadBucketsReferencedByPublishQueue();
+#ifdef BUILD_TESTS
+    bool mPublicationEnabled{true};
+#endif
 
   public:
     HistoryManagerImpl(Application& app);
     ~HistoryManagerImpl() override;
 
-    uint32_t getCheckpointFrequency() override;
-    uint32_t prevCheckpointLedger(uint32_t ledger) override;
-    uint32_t nextCheckpointLedger(uint32_t ledger) override;
-    uint64_t nextCheckpointCatchupProbe(uint32_t ledger) override;
+    uint32_t getCheckpointFrequency() const override;
+    uint32_t checkpointContainingLedger(uint32_t ledger) const override;
+    uint32_t prevCheckpointLedger(uint32_t ledger) const override;
+    uint32_t nextCheckpointLedger(uint32_t ledger) const override;
 
-    void verifyHash(
-        std::string const& filename, uint256 const& hash,
-        std::function<void(asio::error_code const&)> handler) const override;
+    void logAndUpdatePublishStatus() override;
 
-    void decompress(std::string const& filename_gz,
-                    std::function<void(asio::error_code const&)> handler,
-                    bool keepExisting = false) const override;
+    size_t publishQueueLength() const override;
 
-    void compress(std::string const& filename_nogz,
-                  std::function<void(asio::error_code const&)> handler,
-                  bool keepExisting = false) const override;
+    bool maybeQueueHistoryCheckpoint() override;
 
-    void putFile(
-        std::shared_ptr<HistoryArchive const> archive, std::string const& local,
-        std::string const& remote,
-        std::function<void(asio::error_code const&)> handler) const override;
+    void queueCurrentHistory() override;
 
-    void getFile(
-        std::shared_ptr<HistoryArchive const> archive,
-        std::string const& remote, std::string const& local,
-        std::function<void(asio::error_code const&)> handler) const override;
+    void takeSnapshotAndPublish(HistoryArchiveState const& has);
 
-    void
-    mkdir(std::shared_ptr<HistoryArchive const> archive, std::string const& dir,
-          std::function<void(asio::error_code const&)> handler) const override;
+    uint32_t getMinLedgerQueuedToPublish() override;
 
-    bool maybePublishHistory(
-        std::function<void(asio::error_code const&)> handler) override;
+    uint32_t getMaxLedgerQueuedToPublish() override;
 
-    bool hasAnyWritableHistoryArchive() override;
+    size_t publishQueuedHistory() override;
 
-    void publishHistory(
-        std::function<void(asio::error_code const&)> handler) override;
+    std::vector<std::string>
+    getMissingBucketsReferencedByPublishQueue() override;
 
-    void downloadMissingBuckets(
-        HistoryArchiveState desiredState,
-        std::function<void(asio::error_code const& ec)> handler) override;
+    std::vector<std::string> getBucketsReferencedByPublishQueue() override;
 
-    void catchupHistory(
-        uint32_t initLedger, CatchupMode mode,
-        std::function<void(asio::error_code const& ec, CatchupMode mode,
-                           LedgerHeaderHistoryEntry const& lastClosed)> handler,
-        bool manualCatchup) override;
+    std::vector<HistoryArchiveState> getPublishQueueStates() override;
 
-    void snapshotWritten(asio::error_code const&) override;
+    void historyPublished(uint32_t ledgerSeq,
+                          std::vector<std::string> const& originalBuckets,
+                          bool success) override;
 
-    HistoryArchiveState getLastClosedHistoryArchiveState() const override;
+    InferredQuorum inferQuorum(uint32_t ledgerNum) override;
 
     std::string const& getTmpDir() override;
 
     std::string localFilename(std::string const& basename) override;
 
-    uint64_t getPublishSkipCount() override;
-    uint64_t getPublishQueueCount() override;
-    uint64_t getPublishDelayCount() override;
-    uint64_t getPublishStartCount() override;
-    uint64_t getPublishSuccessCount() override;
-    uint64_t getPublishFailureCount() override;
+    uint64_t getPublishQueueCount() const override;
+    uint64_t getPublishSuccessCount() const override;
+    uint64_t getPublishFailureCount() const override;
 
-    uint64_t getCatchupStartCount() override;
-    uint64_t getCatchupSuccessCount() override;
-    uint64_t getCatchupFailureCount() override;
+#ifdef BUILD_TESTS
+    void setPublicationEnabled(bool enabled) override;
+#endif
 };
 }

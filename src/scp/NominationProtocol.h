@@ -4,25 +4,26 @@
 // under the Apache License, Version 2.0. See the COPYING file at the root
 // of this distribution or at http://www.apache.org/licenses/LICENSE-2.0
 
-#include <memory>
-#include <functional>
-#include <string>
-#include <set>
-#include <utility>
-#include "scp/SCP.h"
 #include "lib/json/json-forwards.h"
+#include "scp/SCP.h"
+#include <functional>
+#include <memory>
+#include <set>
+#include <string>
+#include <utility>
 
 namespace stellar
 {
 class NominationProtocol
 {
+  protected:
     Slot& mSlot;
 
     int32 mRoundNumber;
-    std::set<Value> mVotes;                            // X
-    std::set<Value> mAccepted;                         // Y
-    std::set<Value> mCandidates;                       // Z
-    std::map<NodeID, SCPStatement> mLatestNominations; // N
+    std::set<Value> mVotes;                           // X
+    std::set<Value> mAccepted;                        // Y
+    std::set<Value> mCandidates;                      // Z
+    std::map<NodeID, SCPEnvelope> mLatestNominations; // N
 
     std::unique_ptr<SCPEnvelope>
         mLastEnvelope; // last envelope emitted by this node
@@ -49,12 +50,12 @@ class NominationProtocol
     static bool isSubsetHelper(xdr::xvector<Value> const& p,
                                xdr::xvector<Value> const& v, bool& notEqual);
 
-    bool validateValue(Value const& v);
+    SCPDriver::ValidationLevel validateValue(Value const& v);
     Value extractValidValue(Value const& value);
 
     bool isSane(SCPStatement const& st);
 
-    void recordStatement(SCPStatement const& st);
+    void recordEnvelope(SCPEnvelope const& env);
 
     void emitNomination();
 
@@ -93,18 +94,32 @@ class NominationProtocol
     bool nominate(Value const& value, Value const& previousValue,
                   bool timedout);
 
+    // stops the nomination protocol
+    void stopNomination();
+
+    // return the current leaders
+    std::set<NodeID> const& getLeaders() const;
+
     Value const&
     getLatestCompositeCandidate() const
     {
         return mLatestCompositeCandidate;
     }
 
-    void dumpInfo(Json::Value& ret);
+    Json::Value getJsonInfo();
 
     SCPEnvelope*
-    getLastMessage() const
+    getLastMessageSend() const
     {
         return mLastEnvelope.get();
     }
+
+    void setStateFromEnvelope(SCPEnvelope const& e);
+
+    std::vector<SCPEnvelope> getCurrentState() const;
+
+    // returns the latest message from a node
+    // or nullptr if not found
+    SCPEnvelope const* getLatestMessage(NodeID const& id) const;
 };
 }

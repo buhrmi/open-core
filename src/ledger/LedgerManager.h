@@ -4,13 +4,13 @@
 // under the Apache License, Version 2.0. See the COPYING file at the root
 // of this distribution or at http://www.apache.org/licenses/LICENSE-2.0
 
+#include "catchup/CatchupManager.h"
 #include "history/HistoryManager.h"
 #include <memory>
 
 namespace stellar
 {
 
-class LedgerHeaderFrame;
 class LedgerCloseData;
 class Database;
 
@@ -38,13 +38,20 @@ class Database;
 class LedgerManager
 {
   public:
+    static const uint32_t GENESIS_LEDGER_SEQ;
+    static const uint32_t GENESIS_LEDGER_VERSION;
+    static const uint32_t GENESIS_LEDGER_BASE_FEE;
+    static const uint32_t GENESIS_LEDGER_BASE_RESERVE;
+    static const uint32_t GENESIS_LEDGER_MAX_TX_SIZE;
+    static const int64_t GENESIS_LEDGER_TOTAL_COINS;
+
     enum State
     {
         // Loading state from database, not yet active
         LM_BOOTING_STATE,
 
         // local state is in sync with view of consensus coming from herder
-        // desynchronization will cause transition to CATCHING_UP_STATE.
+        // desynchronization will cause transition to LM_BOOTING_STATE.
         LM_SYNCED_STATE,
 
         // local state doesn't match view of consensus from herder
@@ -54,8 +61,17 @@ class LedgerManager
         LM_NUM_STATE
     };
 
-    virtual void setState(State s) = 0;
+    enum class CatchupState
+    {
+        NONE,
+        WAITING_FOR_TRIGGER_LEDGER,
+        APPLYING_HISTORY,
+        WAITING_FOR_CLOSING_LEDGER
+    };
+
+    virtual void bootstrap() = 0;
     virtual State getState() const = 0;
+    virtual CatchupState getCatchupState() const = 0;
     virtual std::string getStateHuman() const = 0;
 
     bool
@@ -66,29 +82,30 @@ class LedgerManager
 
     // Logging helpers, return strings describing the provided ledgers.
     static std::string ledgerAbbrev(uint32_t seq, uint256 const& hash);
+    static std::string ledgerAbbrev(LedgerHeader const& header);
     static std::string ledgerAbbrev(LedgerHeader const& header,
                                     uint256 const& hash);
-    static std::string ledgerAbbrev(std::shared_ptr<LedgerHeaderFrame> p);
-    static std::string ledgerAbbrev(LedgerHeaderHistoryEntry he);
+    static std::string ledgerAbbrev(LedgerHeaderHistoryEntry const& he);
 
     // Factory
     static std::unique_ptr<LedgerManager> create(Application& app);
+
+    // Genesis ledger
+    static LedgerHeader genesisLedger();
 
     // Called by Herder to inform LedgerManager that a SCP has agreed on a new
     // close event. This is the most common cause of LedgerManager advancing
     // from one ledger to the next: the network reached consensus on
     // `ledgerData`.
-    virtual void externalizeValue(LedgerCloseData const& ledgerData) = 0;
-
-    // Return the current ledger header.
-    virtual LedgerHeader const& getCurrentLedgerHeader() const = 0;
+    virtual void valueExternalized(LedgerCloseData const& ledgerData) = 0;
 
     // Return the LCL header and (complete, immutable) hash.
     virtual LedgerHeaderHistoryEntry const&
     getLastClosedLedgerHeader() const = 0;
 
-    // Return the sequence number of the current ledger.
-    virtual uint32_t getLedgerNum() const = 0;
+    // return the HAS that corresponds to the last closed ledger as persisted in
+    // the database
+    virtual HistoryArchiveState getLastClosedLedgerHAS() = 0;
 
     // Return the sequence number of the LCL.
     virtual uint32_t getLastClosedLedgerNum() const = 0;
@@ -96,24 +113,23 @@ class LedgerManager
     // Return the minimum balance required to establish, in the current ledger,
     // a new ledger entry with `ownerCount` owned objects.  Derived from the
     // current ledger's `baseReserve` value.
-    virtual int64_t getMinBalance(uint32_t ownerCount) const = 0;
+    virtual int64_t getLastMinBalance(uint32_t ownerCount) const = 0;
 
-    // Return the close time of the current ledger, in seconds since the POSIX
-    // epoch.
-    virtual uint64_t getCloseTime() const = 0;
+    virtual uint32_t getLastReserve() const = 0;
 
-    // Return the fee required to apply a transaction to the current ledger. The
-    // current ledger's baseFee is a 32bit value in stroops, but it is returned
-    // as a 64bit value here to minimize the chance of overflow in a subsequent
-    // arithmetic operation.
-    virtual int64_t getTxFee() const = 0;
+    // Return the fee required to apply a transaction to the current ledger.
+    virtual uint32_t getLastTxFee() const = 0;
+
+    // return the maximum size of a transaction set to apply to the current
+    // ledger
+    virtual uint32_t getLastMaxTxSetSize() const = 0;
 
     // Return the (changing) number of seconds since the LCL closed.
     virtual uint64_t secondsSinceLastLedgerClose() const = 0;
 
-    // Return a mutable reference to the current ledger header; this is used
-    // solely by LedgerDelta to _modify_ the current ledger-in-progress.
-    virtual LedgerHeader& getCurrentLedgerHeader() = 0;
+    // Ensure any metrics that are "current state" gauge-like counters reflect
+    // the current reality as best as possible.
+    virtual void syncMetrics() = 0;
 
     virtual Database& getDatabase() = 0;
 
@@ -125,36 +141,28 @@ class LedgerManager
     virtual void loadLastKnownLedger(
         std::function<void(asio::error_code const& ec)> handler) = 0;
 
-    // Forcibly switch the application into catchup mode, treating `initLedger`
-    // as the current ledger number (to begin catchup from). Normally this
-    // happens automatically when LedgerManager detects it is desynchronized
-    // from SCP's consensus ledger; this methos is present in the public
-    // interface to permit testing. Pass `manualCatchup=true` to catch up in
-    // "manual mode", in which rounding up and down to checkpoint frequencies is
-    // disabled.
-    virtual void startCatchUp(uint32_t initLedger,
-                              HistoryManager::CatchupMode resume,
-                              bool manualCatchup = false) = 0;
-
-    // Called by the history subsystem during catchup: this method asks the
-    // LedgerManager whether or not the HistoryManager should trust (thus: begin
-    // applying history that terminates in) a candidate LCL.
-    //
-    // The LedgerManager consults a local buffer in which it accumulates SCP
-    // consensus results during catchup, and returns VERIFY_HASH_OK if the
-    // proposed ledger is a (trusted) member of that consensus buffer;
-    // VERIFY_HASH_BAD if a buffered consensus ledger exists with the same
-    // sequence number but _different_ hash; and VERIFY_HASH_UNKNOWN if no
-    // ledger has been received from SCP yet with the proposed ledger sequence
-    // number.
-    virtual HistoryManager::VerifyHashStatus
-    verifyCatchupCandidate(LedgerHeaderHistoryEntry const&) const = 0;
+    // Forcibly switch the application into catchup mode, treating `toLedger`
+    // as the destination ledger number and count as the number of past ledgers
+    // that should be replayed. Normally this happens automatically when
+    // LedgerManager detects it is desynchronized from SCP's consensus ledger.
+    // This method is present in the public interface to permit testing and
+    // offline catchups.
+    virtual void startCatchup(CatchupConfiguration configuration,
+                              std::shared_ptr<HistoryArchive> archive) = 0;
 
     // Forcibly close the current ledger, applying `ledgerData` as the consensus
     // changes.  This is normally done automatically as part of
-    // `externalizeValue()`; this method is present in the public interface to
+    // `valueExternalized()`; this method is present in the public interface to
     // permit testing.
     virtual void closeLedger(LedgerCloseData const& ledgerData) = 0;
+
+    // deletes old entries stored in the database
+    virtual void deleteOldEntries(Database& db, uint32_t ledgerSeq,
+                                  uint32_t count) = 0;
+
+    // popBufferedLedger will throw if there are no buffered ledgers
+    virtual bool hasBufferedLedger() const = 0;
+    virtual LedgerCloseData popBufferedLedger() = 0;
 
     virtual ~LedgerManager()
     {

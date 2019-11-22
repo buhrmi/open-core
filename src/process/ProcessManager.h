@@ -4,10 +4,11 @@
 // under the Apache License, Version 2.0. See the COPYING file at the root
 // of this distribution or at http://www.apache.org/licenses/LICENSE-2.0
 
+#include "util/NonCopyable.h"
 #include "util/Timer.h"
+#include <functional>
 #include <memory>
 #include <string>
-#include <functional>
 
 namespace stellar
 {
@@ -35,21 +36,30 @@ class ProcessExitEvent
     std::shared_ptr<RealTimer> mTimer;
     std::shared_ptr<Impl> mImpl;
     std::shared_ptr<asio::error_code> mEc;
-    ProcessExitEvent(asio::io_service& io_service);
+    ProcessExitEvent(asio::io_context& io_context);
     friend class ProcessManagerImpl;
 
   public:
-    ProcessExitEvent();
     ~ProcessExitEvent();
     void async_wait(std::function<void(asio::error_code)> const& handler);
 };
 
-class ProcessManager
+class ProcessManager : public std::enable_shared_from_this<ProcessManager>,
+                       public NonMovableOrCopyable
 {
   public:
-    static std::unique_ptr<ProcessManager> create(Application& app);
-    virtual ProcessExitEvent runProcess(std::string const& cmdLine,
-                                        std::string outputFile = "") = 0;
-    virtual ~ProcessManager() {}
+    static std::shared_ptr<ProcessManager> create(Application& app);
+    virtual std::weak_ptr<ProcessExitEvent>
+    runProcess(std::string const& cmdLine, std::string outputFile) = 0;
+    virtual size_t getNumRunningProcesses() = 0;
+    virtual bool isShutdown() const = 0;
+    virtual void shutdown() = 0;
+
+    // Depending on the state of the process, either kill the process nicely
+    // or force shutdown it
+    virtual bool tryProcessShutdown(std::shared_ptr<ProcessExitEvent> pe) = 0;
+    virtual ~ProcessManager()
+    {
+    }
 };
 }

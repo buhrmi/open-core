@@ -8,6 +8,7 @@
 
 namespace stellar
 {
+class AbstractLedgerTxn;
 
 class PaymentOpFrame : public OperationFrame
 {
@@ -22,9 +23,10 @@ class PaymentOpFrame : public OperationFrame
     PaymentOpFrame(Operation const& op, OperationResult& res,
                    TransactionFrame& parentTx);
 
-    bool doApply(medida::MetricsRegistry& metrics,
-                 LedgerDelta& delta, LedgerManager& ledgerManager) override;
-    bool doCheckValid(medida::MetricsRegistry& metrics) override;
+    bool doApply(AbstractLedgerTxn& ltx) override;
+    bool doCheckValid(uint32_t ledgerVersion) override;
+    void insertLedgerKeysToPrefetch(
+        std::unordered_set<LedgerKey>& keys) const override;
 
     static PaymentResultCode
     getInnerCode(OperationResult const& res)

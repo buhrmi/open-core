@@ -4,36 +4,36 @@
 // under the Apache License, Version 2.0. See the COPYING file at the root
 // of this distribution or at http://www.apache.org/licenses/LICENSE-2.0
 
-#include <vector>
-#include <memory>
 #include "herder/Herder.h"
-#include "scp/SCP.h"
+#include "herder/HerderSCPDriver.h"
+#include "herder/PendingEnvelopes.h"
+#include "herder/TransactionQueue.h"
+#include "herder/Upgrades.h"
 #include "util/Timer.h"
-#include <overlay/ItemFetcher.h>
-#include "PendingEnvelopes.h"
+#include "util/XDROperators.h"
+#include <deque>
+#include <memory>
+#include <unordered_map>
+#include <vector>
 
 namespace medida
 {
 class Meter;
 class Counter;
+class Timer;
 }
 
 namespace stellar
 {
 class Application;
 class LedgerManager;
-
-using xdr::operator<;
-using xdr::operator==;
+class HerderSCPDriver;
 
 /*
- * Drives the SCP protocol (is an SCP::Client). It is also in charge of
- * receiving transactions from the network.
+ * Is in charge of receiving transactions from the network.
  */
-class HerderImpl : public Herder, public SCPDriver
+class HerderImpl : public Herder
 {
-    SCP mSCP;
-
   public:
     HerderImpl(Application& app);
     ~HerderImpl();
@@ -41,56 +41,39 @@ class HerderImpl : public Herder, public SCPDriver
     State getState() const override;
     std::string getStateHuman() const override;
 
+    void syncMetrics() override;
+
     // Bootstraps the HerderImpl if we're creating a new Network
     void bootstrap() override;
 
-    // SCP methods
+    void restoreState() override;
 
-    void signEnvelope(SCPEnvelope& envelope) override;
-    bool verifyEnvelope(SCPEnvelope const& envelope) override;
+    SCP& getSCP();
+    HerderSCPDriver&
+    getHerderSCPDriver()
+    {
+        return mHerderSCPDriver;
+    }
 
-    bool validateValue(uint64 slotIndex, Value const& value) override;
+    void valueExternalized(uint64 slotIndex, StellarValue const& value);
+    void emitEnvelope(SCPEnvelope const& envelope);
 
-    Value extractValidValue(uint64 slotIndex, Value const& value) override;
+    TransactionQueue::AddResult
+    recvTransaction(TransactionFramePtr tx) override;
 
-    std::string getValueString(Value const& v) const override;
+    EnvelopeStatus recvSCPEnvelope(SCPEnvelope const& envelope) override;
+    EnvelopeStatus recvSCPEnvelope(SCPEnvelope const& envelope,
+                                   const SCPQuorumSet& qset,
+                                   TxSetFrame txset) override;
 
-    void ballotDidHearFromQuorum(uint64 slotIndex,
-                                 SCPBallot const& ballot) override;
+    void sendSCPStateToPeer(uint32 ledgerSeq, Peer::pointer peer) override;
 
-    void valueExternalized(uint64 slotIndex, Value const& value) override;
-
-    void nominatingValue(uint64 slotIndex, Value const& value) override;
-
-    Value combineCandidates(uint64 slotIndex,
-                            std::set<Value> const& candidates) override;
-
-    void setupTimer(uint64 slotIndex, int timerID,
-                    std::chrono::milliseconds timeout,
-                    std::function<void()> cb) override;
-
-    void emitEnvelope(SCPEnvelope const& envelope) override;
-    bool recvTransactions(TxSetFramePtr txSet);
-    // Extra SCP methods overridden solely to increment metrics.
-    void updatedCandidateValue(uint64 slotIndex, Value const& value) override;
-    void startedBallotProtocol(uint64 slotIndex,
-                               SCPBallot const& ballot) override;
-    void acceptedBallotPrepared(uint64 slotIndex,
-                                SCPBallot const& ballot) override;
-    void confirmedBallotPrepared(uint64 slotIndex,
-                                 SCPBallot const& ballot) override;
-    void acceptedCommit(uint64 slotIndex, SCPBallot const& ballot) override;
-
-    TransactionSubmitStatus recvTransaction(TransactionFramePtr tx) override;
-
-    void recvSCPEnvelope(SCPEnvelope const& envelope) override;
-
-    void recvSCPQuorumSet(Hash hash, const SCPQuorumSet& qset) override;
-    void recvTxSet(Hash hash, const TxSetFrame& txset) override;
+    bool recvSCPQuorumSet(Hash const& hash, const SCPQuorumSet& qset) override;
+    bool recvTxSet(Hash const& hash, const TxSetFrame& txset) override;
     void peerDoesntHave(MessageType type, uint256 const& itemID,
-                        PeerPtr peer) override;
-    TxSetFramePtr getTxSet(Hash hash) override;
-    SCPQuorumSetPtr getQSet(const Hash& qSetHash) override;
+                        Peer::pointer peer) override;
+    TxSetFramePtr getTxSet(Hash const& hash) override;
+    SCPQuorumSetPtr getQSet(Hash const& qSetHash) override;
 
     void processSCPQueue();
 
@@ -100,135 +83,141 @@ class HerderImpl : public Herder, public SCPDriver
 
     void triggerNextLedger(uint32_t ledgerSeqToTrigger) override;
 
-    void dumpInfo(Json::Value& ret) override;
+    void setUpgrades(Upgrades::UpgradeParameters const& upgrades) override;
+    std::string getUpgradesJson() override;
+
+    bool resolveNodeID(std::string const& s, PublicKey& retKey) override;
+
+    Json::Value getJsonInfo(size_t limit, bool fullKeys = false) override;
+    Json::Value getJsonQuorumInfo(NodeID const& id, bool summary, bool fullKeys,
+                                  uint64 index) override;
+    Json::Value getJsonTransitiveQuorumIntersectionInfo(bool fullKeys) const;
+    virtual Json::Value getJsonTransitiveQuorumInfo(NodeID const& id,
+                                                    bool summary,
+                                                    bool fullKeys) override;
+    QuorumTracker::QuorumMap const& getCurrentlyTrackedQuorum() const override;
+
+#ifdef BUILD_TESTS
+    // used for testing
+    PendingEnvelopes& getPendingEnvelopes();
+#endif
+
+    // helper function to verify envelopes are signed
+    bool verifyEnvelope(SCPEnvelope const& envelope);
+    // helper function to sign envelopes
+    void signEnvelope(SecretKey const& s, SCPEnvelope& envelope);
+
+    // helper function to verify SCPValues are signed
+    bool verifyStellarValueSignature(StellarValue const& sv);
+    // helper function to sign SCPValues
+    void signStellarValue(SecretKey const& s, StellarValue& sv);
 
   private:
-    void ledgerClosed();
-    void removeReceivedTx(TransactionFramePtr tx);
-    void expireBallot(uint64 slotIndex, SCPBallot const& ballot);
+    // return true if values referenced by envelope have a valid close time:
+    // * it's within the allowed range (using lcl if possible)
+    // * it's recent enough (if `enforceRecent` is set)
+    bool checkCloseTime(SCPEnvelope const& envelope, bool enforceRecent);
 
-    // returns true if upgrade is a valid upgrade step
-    // in which case it also sets upgradeType
-    bool validateUpgradeStep(uint64 slotIndex, UpgradeType const& upgrade,
-                             LedgerUpgradeType& upgradeType);
-    bool validateValueHelper(uint64 slotIndex, StellarValue const& sv);
+    void ledgerClosed();
 
     void startRebroadcastTimer();
     void rebroadcast();
     void broadcast(SCPEnvelope const& e);
 
-    void updateSCPCounters();
+    void processSCPQueueUpToIndex(uint64 slotIndex);
 
-    void processSCPQueueAtIndex(uint64 slotIndex);
+    TransactionQueue mTransactionQueue;
 
-    // returns true if the local instance is in a state compatible with
-    // this slot
-    bool isSlotCompatibleWithCurrentState(uint64 slotIndex);
-
-    // 0- tx we got during ledger close
-    // 1- one ledger ago. rebroadcast
-    // 2- two ledgers ago.
-    std::vector<std::vector<TransactionFramePtr>> mReceivedTransactions;
+    void
+    updateTransactionQueue(std::vector<TransactionFramePtr> const& applied);
 
     PendingEnvelopes mPendingEnvelopes;
-
-    std::map<SCPBallot,
-             std::map<NodeID, std::vector<std::shared_ptr<VirtualTimer>>>>
-        mBallotValidationTimers;
+    Upgrades mUpgrades;
+    HerderSCPDriver mHerderSCPDriver;
 
     void herderOutOfSync();
 
-    struct ConsensusData
-    {
-        uint64 mConsensusIndex;
-        StellarValue mConsensusValue;
-        ConsensusData(uint64 index, StellarValue const& b)
-            : mConsensusIndex(index), mConsensusValue(b)
-        {
-        }
-    };
+    // attempt to retrieve additional SCP messages from peers
+    void getMoreSCPState();
 
-    // if the local instance is tracking the current state of SCP
-    // herder keeps track of the consensus index and ballot
-    // when not set, it just means that herder will try to snap to any slot that
-    // reached consensus it can
-    std::unique_ptr<ConsensusData> mTrackingSCP;
-
-    // the ledger index that was last externalized
-    uint32
-    lastConsensusLedgerIndex() const
-    {
-        assert(mTrackingSCP->mConsensusIndex <= UINT32_MAX);
-        return static_cast<uint32>(mTrackingSCP->mConsensusIndex);
-    }
-
-    // the ledger index that we expect to externalize next
-    uint32
-    nextConsensusLedgerIndex() const
-    {
-        return lastConsensusLedgerIndex() + 1;
-    }
+    // last slot that was persisted into the database
+    // keep track of all messages for MAX_SLOTS_TO_REMEMBER slots
+    uint64 mLastSlotSaved;
 
     // timer that detects that we're stuck on an SCP slot
     VirtualTimer mTrackingTimer;
+
+    // tracks the last time externalize was called
+    VirtualClock::time_point mLastExternalize;
+
+    // saves the SCP messages that the instance sent out last
+    void persistSCPState(uint64 slot);
+    // restores SCP state based on the last messages saved on disk
+    void restoreSCPState();
+
+    // saves upgrade parameters
+    void persistUpgrades();
+    void restoreUpgrades();
 
     // called every time we get ledger externalized
     // ensures that if we don't hear from the network, we throw the herder into
     // indeterminate mode
     void trackingHeartBeat();
 
-    VirtualClock::time_point mLastTrigger;
     VirtualTimer mTriggerTimer;
 
     VirtualTimer mRebroadcastTimer;
-    Value mCurrentValue;
-
-    // timers used by SCP
-    // indexed by slotIndex, timerID
-    std::map<uint64, std::map<int, std::unique_ptr<VirtualTimer>>> mSCPTimers;
 
     Application& mApp;
     LedgerManager& mLedgerManager;
 
     struct SCPMetrics
     {
-        medida::Meter& mValueValid;
-        medida::Meter& mValueInvalid;
-        medida::Meter& mNominatingValue;
-        medida::Meter& mValueExternalize;
-
-        medida::Meter& mUpdatedCandidate;
-        medida::Meter& mStartBallotProtocol;
-        medida::Meter& mAcceptedBallotPrepared;
-        medida::Meter& mConfirmedBallotPrepared;
-        medida::Meter& mAcceptedCommit;
-
-        medida::Meter& mBallotExpire;
-
-        medida::Meter& mQuorumHeard;
-
         medida::Meter& mLostSync;
 
         medida::Meter& mEnvelopeEmit;
         medida::Meter& mEnvelopeReceive;
-        medida::Meter& mEnvelopeSign;
-        medida::Meter& mEnvelopeValidSig;
-        medida::Meter& mEnvelopeInvalidSig;
-
-        medida::Counter& mBallotValidationTimersSize;
-
-        // Counters for stuff in parent class (SCP)
-        // that we monitor on a best-effort basis from
-        // here.
-        medida::Counter& mKnownSlotsSize;
 
         // Counters for things reached-through the
         // SCP maps: Slots and Nodes
         medida::Counter& mCumulativeStatements;
 
+        // envelope signature verification
+        medida::Meter& mEnvelopeValidSig;
+        medida::Meter& mEnvelopeInvalidSig;
+
         SCPMetrics(Application& app);
     };
 
     SCPMetrics mSCPMetrics;
+
+    // Check that the quorum map intersection state is up to date, and if not
+    // run a background job that re-analyzes the current quorum map.
+    void checkAndMaybeReanalyzeQuorumMap();
+
+    struct QuorumMapIntersectionState
+    {
+        uint32_t mLastCheckLedger{0};
+        uint32_t mLastGoodLedger{0};
+        size_t mNumNodes{0};
+        Hash mLastCheckQuorumMapHash{};
+        bool mRecalculating{false};
+        std::pair<std::vector<PublicKey>, std::vector<PublicKey>>
+            mPotentialSplit{};
+        std::set<std::set<PublicKey>> mIntersectionCriticalNodes{};
+
+        bool
+        hasAnyResults() const
+        {
+            return mLastGoodLedger != 0;
+        }
+
+        bool
+        enjoysQuorunIntersection() const
+        {
+            return mLastCheckLedger == mLastGoodLedger;
+        }
+    };
+    QuorumMapIntersectionState mLastQuorumMapIntersectionState;
 };
 }

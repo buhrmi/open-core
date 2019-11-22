@@ -7,27 +7,33 @@
 // else.
 #include "util/asio.h"
 
-#include "main/Application.h"
-#include "main/Config.h"
 #include "bucket/BucketList.h"
 #include "bucket/BucketManager.h"
-#include "ledger/LedgerManager.h"
-#include "overlay/StellarXDR.h"
-#include "history/HistoryArchive.h"
-#include "history/HistoryManagerImpl.h"
-#include "history/PublishStateMachine.h"
-#include "history/CatchupStateMachine.h"
-#include "herder/HerderImpl.h"
-#include "history/FileTransferInfo.h"
-#include "process/ProcessManager.h"
-#include "util/make_unique.h"
-#include "util/Logging.h"
-#include "util/TmpDir.h"
-#include "crypto/SHA.h"
 #include "crypto/Hex.h"
+#include "crypto/SHA.h"
+#include "herder/HerderImpl.h"
+#include "history/HistoryArchive.h"
+#include "history/HistoryArchiveManager.h"
+#include "history/HistoryManagerImpl.h"
+#include "history/StateSnapshot.h"
+#include "historywork/FetchRecentQsetsWork.h"
+#include "historywork/PublishWork.h"
+#include "historywork/PutSnapshotFilesWork.h"
+#include "historywork/ResolveSnapshotWork.h"
+#include "historywork/WriteSnapshotWork.h"
+#include "ledger/LedgerManager.h"
 #include "lib/util/format.h"
-#include "medida/metrics_registry.h"
+#include "main/Application.h"
+#include "main/Config.h"
 #include "medida/meter.h"
+#include "medida/metrics_registry.h"
+#include "overlay/StellarXDR.h"
+#include "process/ProcessManager.h"
+#include "util/Logging.h"
+#include "util/Math.h"
+#include "util/StatusManager.h"
+#include "util/TmpDir.h"
+#include "work/WorkScheduler.h"
 #include "xdrpp/marshal.h"
 
 #include <fstream>
@@ -38,165 +44,35 @@ namespace stellar
 
 using namespace std;
 
-bool
-HistoryManager::initializeHistoryArchive(Application& app, std::string arch)
-{
-    auto const& cfg = app.getConfig();
-    auto i = cfg.HISTORY.find(arch);
-    if (i == cfg.HISTORY.end())
-    {
-        CLOG(FATAL, "History") << "Can't initialize unknown history archive '"
-                               << arch << "'";
-        return false;
-    }
-    HistoryArchiveState has;
-    CLOG(INFO, "History") << "Initializing history archive '" << arch << "'";
-    bool ok = true;
-    bool done = false;
-    has.resolveAllFutures();
-    i->second->putState(app, has, [arch, &done, &ok](asio::error_code const& ec)
-                        {
-                            if (ec)
-                            {
-                                ok = false;
-                                CLOG(FATAL, "History")
-                                    << "Failed to initialize history archive '"
-                                    << arch << "'";
-                            }
-                            else
-                            {
-                                CLOG(INFO, "History")
-                                    << "Initialized history archive '" << arch
-                                    << "'";
-                            }
-                            done = true;
-                        });
+static string kSQLCreateStatement = "CREATE TABLE IF NOT EXISTS publishqueue ("
+                                    "ledger   INTEGER PRIMARY KEY,"
+                                    "state    TEXT"
+                                    "); ";
 
-    while (!done && !app.getClock().getIOService().stopped())
-    {
-        app.getClock().crank(true);
-    }
-    return ok;
+void
+HistoryManager::dropAll(Database& db)
+{
+    db.getSession() << "DROP TABLE IF EXISTS publishqueue;";
+    soci::statement st = db.getSession().prepare << kSQLCreateStatement;
+    st.execute(true);
 }
 
 std::unique_ptr<HistoryManager>
 HistoryManager::create(Application& app)
 {
-    return make_unique<HistoryManagerImpl>(app);
-}
-
-bool
-HistoryManager::checkSensibleConfig(Config const& cfg)
-{
-    // Check reasonable-ness of history archive definitions
-    std::vector<std::string> readOnlyArchives;
-    std::vector<std::string> readWriteArchives;
-    std::vector<std::string> writeOnlyArchives;
-    std::vector<std::string> inertArchives;
-
-    for (auto const& pair : cfg.HISTORY)
-    {
-        if (pair.second->hasGetCmd())
-        {
-            if (pair.second->hasPutCmd())
-            {
-                readWriteArchives.push_back(pair.first);
-            }
-            else
-            {
-                readOnlyArchives.push_back(pair.first);
-            }
-        }
-        else
-        {
-            if (pair.second->hasPutCmd())
-            {
-                writeOnlyArchives.push_back(pair.first);
-            }
-            else
-            {
-                inertArchives.push_back(pair.first);
-            }
-        }
-    }
-
-    bool badArchives = false;
-
-    for (auto const& a : inertArchives)
-    {
-        CLOG(FATAL, "History")
-            << "Archive '" << a
-            << "' has no 'get' or 'put' command, will not function";
-        badArchives = true;
-    }
-
-    for (auto const& a : writeOnlyArchives)
-    {
-        CLOG(FATAL, "History")
-            << "Archive '" << a
-            << "' has 'put' but no 'get' command, will be unwritable";
-        badArchives = true;
-    }
-
-    for (auto const& a : readWriteArchives)
-    {
-        CLOG(INFO, "History")
-            << "Archive '" << a
-            << "' has 'put' and 'get' commands, will be read and written";
-    }
-
-    for (auto const& a : readOnlyArchives)
-    {
-        CLOG(INFO, "History")
-            << "Archive '" << a
-            << "' has 'get' command only, will not be written";
-    }
-
-    if (readOnlyArchives.empty() && readWriteArchives.empty())
-    {
-        CLOG(FATAL, "History")
-            << "No readable archives configured, catchup will fail.";
-        badArchives = true;
-    }
-
-    if (readWriteArchives.empty())
-    {
-        CLOG(WARNING, "History")
-            << "No writable archives configured, history will not be written.";
-    }
-
-    if (badArchives)
-    {
-        CLOG(ERROR, "History") << "History archives misconfigured.";
-        return false;
-    }
-    return true;
+    return std::make_unique<HistoryManagerImpl>(app);
 }
 
 HistoryManagerImpl::HistoryManagerImpl(Application& app)
     : mApp(app)
     , mWorkDir(nullptr)
-    , mPublish(nullptr)
-    , mCatchup(nullptr)
-
-    , mPublishSkip(
-          app.getMetrics().NewMeter({"history", "publish", "skip"}, "event"))
-    , mPublishQueue(
-          app.getMetrics().NewMeter({"history", "publish", "queue"}, "event"))
-    , mPublishDelay(
-          app.getMetrics().NewMeter({"history", "publish", "delay"}, "event"))
-    , mPublishStart(
-          app.getMetrics().NewMeter({"history", "publish", "start"}, "event"))
+    , mPublishWork(nullptr)
     , mPublishSuccess(
           app.getMetrics().NewMeter({"history", "publish", "success"}, "event"))
     , mPublishFailure(
           app.getMetrics().NewMeter({"history", "publish", "failure"}, "event"))
-    , mCatchupStart(
-          app.getMetrics().NewMeter({"history", "catchup", "start"}, "event"))
-    , mCatchupSuccess(
-          app.getMetrics().NewMeter({"history", "catchup", "success"}, "event"))
-    , mCatchupFailure(
-          app.getMetrics().NewMeter({"history", "catchup", "failure"}, "event"))
+    , mEnqueueToPublishTimer(
+          app.getMetrics().NewTimer({"history", "publish", "time"}))
 {
 }
 
@@ -205,7 +81,7 @@ HistoryManagerImpl::~HistoryManagerImpl()
 }
 
 uint32_t
-HistoryManagerImpl::getCheckpointFrequency()
+HistoryManagerImpl::getCheckpointFrequency() const
 {
     if (mApp.getConfig().ARTIFICIALLY_ACCELERATE_TIME_FOR_TESTING)
     {
@@ -218,37 +94,67 @@ HistoryManagerImpl::getCheckpointFrequency()
 }
 
 uint32_t
-HistoryManagerImpl::prevCheckpointLedger(uint32_t ledger)
+HistoryManagerImpl::checkpointContainingLedger(uint32_t ledger) const
+{
+    return nextCheckpointLedger(ledger + 1) - 1;
+}
+
+uint32_t
+HistoryManagerImpl::prevCheckpointLedger(uint32_t ledger) const
 {
     uint32_t freq = getCheckpointFrequency();
     return (ledger / freq) * freq;
 }
 
 uint32_t
-HistoryManagerImpl::nextCheckpointLedger(uint32_t ledger)
+HistoryManagerImpl::nextCheckpointLedger(uint32_t ledger) const
 {
-    if (mManualCatchup)
-    {
-        return ledger;
-    }
-
     uint32_t freq = getCheckpointFrequency();
     if (ledger == 0)
         return freq;
     return (((ledger + freq - 1) / freq) * freq);
 }
 
-uint64_t
-HistoryManagerImpl::nextCheckpointCatchupProbe(uint32_t ledger)
+void
+HistoryManagerImpl::logAndUpdatePublishStatus()
 {
-    uint32_t next = this->nextCheckpointLedger(ledger);
-    auto ledger_duration = CatchupStateMachine::SLEEP_SECONDS_PER_LEDGER;
-    if (mApp.getConfig().ARTIFICIALLY_ACCELERATE_TIME_FOR_TESTING)
+    std::stringstream stateStr;
+    if (mPublishWork)
     {
-        ledger_duration = std::chrono::seconds(1);
-    }
+        auto qlen = publishQueueLength();
+        stateStr << "Publishing " << qlen << " queued checkpoints"
+                 << " [" << getMinLedgerQueuedToPublish() << "-"
+                 << getMaxLedgerQueuedToPublish() << "]"
+                 << ": " << mPublishWork->getStatus();
 
-    return (((next - ledger) + 5) * ledger_duration.count());
+        auto current = stateStr.str();
+        auto existing = mApp.getStatusManager().getStatusMessage(
+            StatusCategory::HISTORY_PUBLISH);
+        if (existing != current)
+        {
+            CLOG(INFO, "History") << current;
+            mApp.getStatusManager().setStatusMessage(
+                StatusCategory::HISTORY_PUBLISH, current);
+        }
+    }
+    else
+    {
+        mApp.getStatusManager().removeStatusMessage(
+            StatusCategory::HISTORY_PUBLISH);
+    }
+}
+
+size_t
+HistoryManagerImpl::publishQueueLength() const
+{
+    uint32_t count;
+    auto prep = mApp.getDatabase().getPreparedStatement(
+        "SELECT count(ledger) FROM publishqueue;");
+    auto& st = prep.statement();
+    st.exchange(soci::into(count));
+    st.define_and_bind();
+    st.execute(true);
+    return count;
 }
 
 string const&
@@ -257,7 +163,7 @@ HistoryManagerImpl::getTmpDir()
     if (!mWorkDir)
     {
         TmpDir t = mApp.getTmpDirManager().tmpDir("history");
-        mWorkDir = make_unique<TmpDir>(std::move(t));
+        mWorkDir = std::make_unique<TmpDir>(std::move(t));
     }
     return mWorkDir->getName();
 }
@@ -268,371 +174,300 @@ HistoryManagerImpl::localFilename(std::string const& basename)
     return this->getTmpDir() + "/" + basename;
 }
 
-static void
-checkGzipSuffix(string const& filename)
+InferredQuorum
+HistoryManagerImpl::inferQuorum(uint32_t ledgerNum)
 {
-    string suf(".gz");
-    if (!(filename.size() >= suf.size() &&
-          equal(suf.rbegin(), suf.rend(), filename.rbegin())))
+    InferredQuorum iq;
+    CLOG(INFO, "History") << "Starting FetchRecentQsetsWork";
+    mApp.getWorkScheduler().executeWork<FetchRecentQsetsWork>(iq, ledgerNum);
+    return iq;
+}
+
+uint32_t
+HistoryManagerImpl::getMinLedgerQueuedToPublish()
+{
+    uint32_t seq;
+    soci::indicator minIndicator;
+    auto prep = mApp.getDatabase().getPreparedStatement(
+        "SELECT min(ledger) FROM publishqueue;");
+    auto& st = prep.statement();
+    st.exchange(soci::into(seq, minIndicator));
+    st.define_and_bind();
+    st.execute(true);
+    if (minIndicator == soci::indicator::i_ok)
     {
-        throw runtime_error("filename does not end in .gz");
+        return seq;
     }
+    return 0;
 }
 
-static void
-checkNoGzipSuffix(string const& filename)
+uint32_t
+HistoryManagerImpl::getMaxLedgerQueuedToPublish()
 {
-    string suf(".gz");
-    if (filename.size() >= suf.size() &&
-        equal(suf.rbegin(), suf.rend(), filename.rbegin()))
+    uint32_t seq;
+    soci::indicator maxIndicator;
+    auto prep = mApp.getDatabase().getPreparedStatement(
+        "SELECT max(ledger) FROM publishqueue;");
+    auto& st = prep.statement();
+    st.exchange(soci::into(seq, maxIndicator));
+    st.define_and_bind();
+    st.execute(true);
+    if (maxIndicator == soci::indicator::i_ok)
     {
-        throw runtime_error("filename ends in .gz");
+        return seq;
     }
-}
-
-void
-HistoryManagerImpl::verifyHash(
-    std::string const& filename, uint256 const& hash,
-    std::function<void(asio::error_code const&)> handler) const
-{
-    checkNoGzipSuffix(filename);
-    Application& app = this->mApp;
-    app.getWorkerIOService().post(
-        [&app, filename, handler, hash]()
-        {
-            auto hasher = SHA256::create();
-            asio::error_code ec;
-            char buf[4096];
-            {
-                // ensure that the stream gets its own scope to avoid race with
-                // main thread
-                ifstream in(filename, ofstream::binary);
-                while (in)
-                {
-                    in.read(buf, sizeof(buf));
-                    hasher->add(ByteSlice(buf, in.gcount()));
-                }
-                uint256 vHash = hasher->finish();
-                if (vHash == hash)
-                {
-                    LOG(DEBUG) << "Verified hash (" << hexAbbrev(hash)
-                               << ") for " << filename;
-                }
-                else
-                {
-                    LOG(WARNING) << "FAILED verifying hash for " << filename;
-                    LOG(WARNING) << "expected hash: " << binToHex(hash);
-                    LOG(WARNING) << "computed hash: " << binToHex(vHash);
-                    ec = std::make_error_code(std::errc::io_error);
-                }
-            }
-            app.getClock().getIOService().post([ec, handler]()
-                                               {
-                                                   handler(ec);
-                                               });
-        });
-}
-
-void
-HistoryManagerImpl::decompress(
-    std::string const& filename_gz,
-    std::function<void(asio::error_code const&)> handler,
-    bool keepExisting) const
-{
-    checkGzipSuffix(filename_gz);
-    std::string filename = filename_gz.substr(0, filename_gz.size() - 3);
-    Application& app = this->mApp;
-    std::string commandLine("gzip -d ");
-    std::string outputFile;
-    if (keepExisting)
-    {
-        // Leave input intact, write output to stdout.
-        commandLine += "-c ";
-        outputFile = filename;
-    }
-    commandLine += filename_gz;
-    auto exit = app.getProcessManager().runProcess(commandLine, outputFile);
-    exit.async_wait(
-        [&app, filename_gz, filename, handler](asio::error_code const& ec)
-        {
-            if (ec)
-            {
-                LOG(WARNING) << "'gzip -d " << filename_gz << "' failed,"
-                             << " removing " << filename_gz << " and "
-                             << filename;
-                std::remove(filename_gz.c_str());
-                std::remove(filename.c_str());
-            }
-            handler(ec);
-        });
-}
-
-void
-HistoryManagerImpl::compress(
-    std::string const& filename_nogz,
-    std::function<void(asio::error_code const&)> handler,
-    bool keepExisting) const
-{
-    checkNoGzipSuffix(filename_nogz);
-    std::string filename = filename_nogz + ".gz";
-    Application& app = this->mApp;
-    std::string commandLine("gzip ");
-    std::string outputFile;
-    if (keepExisting)
-    {
-        // Leave input intact, write output to stdout.
-        commandLine += "-c ";
-        outputFile = filename;
-    }
-    commandLine += filename_nogz;
-    auto exit = app.getProcessManager().runProcess(commandLine, outputFile);
-    exit.async_wait(
-        [&app, filename_nogz, filename, handler](asio::error_code const& ec)
-        {
-            if (ec)
-            {
-                LOG(WARNING) << "'gzip " << filename_nogz << "' failed,"
-                             << " removing " << filename_nogz << " and "
-                             << filename;
-                std::remove(filename_nogz.c_str());
-                std::remove(filename.c_str());
-            }
-            handler(ec);
-        });
-}
-
-void
-HistoryManagerImpl::putFile(
-    std::shared_ptr<HistoryArchive const> archive, string const& local,
-    string const& remote,
-    function<void(asio::error_code const& ec)> handler) const
-{
-    assert(archive->hasPutCmd());
-    auto cmd = archive->putFileCmd(local, remote);
-    auto exit = this->mApp.getProcessManager().runProcess(cmd);
-    exit.async_wait(handler);
-}
-
-void
-HistoryManagerImpl::getFile(
-    std::shared_ptr<HistoryArchive const> archive, string const& remote,
-    string const& local,
-    function<void(asio::error_code const& ec)> handler) const
-{
-    assert(archive->hasGetCmd());
-    auto cmd = archive->getFileCmd(remote, local);
-    auto exit = this->mApp.getProcessManager().runProcess(cmd);
-    exit.async_wait(handler);
-}
-
-void
-HistoryManagerImpl::mkdir(
-    std::shared_ptr<HistoryArchive const> archive, std::string const& dir,
-    std::function<void(asio::error_code const&)> handler) const
-{
-    if (archive->hasMkdirCmd())
-    {
-        auto cmd = archive->mkdirCmd(dir);
-        auto exit = this->mApp.getProcessManager().runProcess(cmd);
-        exit.async_wait(handler);
-    }
-    else
-    {
-        asio::error_code ec;
-        handler(ec);
-    }
-}
-
-HistoryArchiveState
-HistoryManagerImpl::getLastClosedHistoryArchiveState() const
-{
-    auto seq =
-        mApp.getLedgerManager().getLastClosedLedgerHeader().header.ledgerSeq;
-    auto& bl = mApp.getBucketManager().getBucketList();
-    return HistoryArchiveState(seq, bl);
+    return 0;
 }
 
 bool
-HistoryManagerImpl::hasAnyWritableHistoryArchive()
+HistoryManagerImpl::maybeQueueHistoryCheckpoint()
 {
-    auto const& hist = mApp.getConfig().HISTORY;
-    for (auto const& pair : hist)
-    {
-        if (pair.second->hasGetCmd() && pair.second->hasPutCmd())
-            return true;
-    }
-    return false;
-}
-
-bool
-HistoryManagerImpl::maybePublishHistory(
-    std::function<void(asio::error_code const&)> handler)
-{
-    uint32_t seq = mApp.getLedgerManager().getLedgerNum();
+    uint32_t seq = mApp.getLedgerManager().getLastClosedLedgerNum() + 1;
     if (seq != nextCheckpointLedger(seq))
     {
         return false;
     }
 
-    if (!hasAnyWritableHistoryArchive())
+    if (!mApp.getHistoryArchiveManager().hasAnyWritableHistoryArchive())
     {
-        mPublishSkip.Mark();
-        CLOG(WARNING, "History")
+        CLOG(DEBUG, "History")
             << "Skipping checkpoint, no writable history archives";
         return false;
     }
 
-    publishHistory(handler);
+    queueCurrentHistory();
     return true;
 }
 
 void
-HistoryManagerImpl::publishHistory(
-    std::function<void(asio::error_code const&)> handler)
+HistoryManagerImpl::queueCurrentHistory()
 {
-    if (!mPublish)
-    {
-        mPublish = make_unique<PublishStateMachine>(mApp);
-    }
-    mPublishQueue.Mark();
-    auto snap = PublishStateMachine::takeSnapshot(mApp);
-    if (mPublish->queueSnapshot(snap,
-                                [this, handler](asio::error_code const& ec)
-                                {
-                                    if (ec)
-                                    {
-                                        this->mPublishFailure.Mark();
-                                    }
-                                    else
-                                    {
-                                        this->mPublishSuccess.Mark();
-                                    }
-                                    handler(ec);
-                                }))
-    {
-        // Only bump this counter if there's a delay building up.
-        mPublishDelay.Mark();
-    }
+    auto ledger = mApp.getLedgerManager().getLastClosedLedgerNum();
+    HistoryArchiveState has(ledger, mApp.getBucketManager().getBucketList());
+
+    CLOG(DEBUG, "History") << "Queueing publish state for ledger " << ledger;
+    mEnqueueTimes.emplace(ledger, std::chrono::steady_clock::now());
+
+    auto state = has.toString();
+    auto timer = mApp.getDatabase().getInsertTimer("publishqueue");
+    auto prep = mApp.getDatabase().getPreparedStatement(
+        "INSERT INTO publishqueue (ledger, state) VALUES (:lg, :st);");
+    auto& st = prep.statement();
+    st.exchange(soci::use(ledger));
+    st.exchange(soci::use(state));
+    st.define_and_bind();
+    st.execute(true);
+
+    // We have now written the current HAS to the database, so
+    // it's "safe" to crash (at least after the enclosing tx commits);
+    // but that HAS might have merges running and if we throw it
+    // away at this point we'll lose the merges and have to restart
+    // them. So instead we're going to insert the HAS we have in hand
+    // into the in-memory publish queue in order to preserve those
+    // merges-in-progress, avoid restarting them.
+
+    mPublishQueued++;
+    mPublishQueueBuckets.addBuckets(has.allBuckets());
 }
 
 void
-HistoryManagerImpl::snapshotWritten(asio::error_code const& ec)
+HistoryManagerImpl::takeSnapshotAndPublish(HistoryArchiveState const& has)
 {
-    assert(mPublish);
-    mPublishStart.Mark();
-    mPublish->snapshotWritten(ec);
+    if (mPublishWork)
+    {
+        return;
+    }
+    // Ensure no merges are in-progress, and capture the bucket list hashes
+    // *before* doing the actual publish. This ensures that the HAS is in
+    // pristine state as returned by the database.
+    for (auto const& bucket : has.currentBuckets)
+    {
+        assert(!bucket.next.isLive());
+    }
+    auto allBucketsFromHAS = has.allBuckets();
+    auto ledgerSeq = has.currentLedger;
+    CLOG(DEBUG, "History") << "Activating publish for ledger " << ledgerSeq;
+    auto snap = std::make_shared<StateSnapshot>(mApp, has);
+
+    // Phase 1: resolve futures in snapshot
+    auto resolveFutures = std::make_shared<ResolveSnapshotWork>(mApp, snap);
+    // Phase 2: write snapshot files
+    auto writeSnap = std::make_shared<WriteSnapshotWork>(mApp, snap);
+    // Phase 3: update archives
+    auto putSnap = std::make_shared<PutSnapshotFilesWork>(mApp, snap);
+
+    std::vector<std::shared_ptr<BasicWork>> seq{resolveFutures, writeSnap,
+                                                putSnap};
+    // Pass in all bucket hashes from HAS. We cannot rely on StateSnapshot
+    // buckets here, because its buckets might have some futures resolved by
+    // now, differing from the state of the bucketlist during queueing.
+    mPublishWork = mApp.getWorkScheduler().scheduleWork<PublishWork>(
+        snap, seq, allBucketsFromHAS);
 }
 
-void
-HistoryManagerImpl::downloadMissingBuckets(
-    HistoryArchiveState desiredState,
-    std::function<void(asio::error_code const& ec)> handler)
+size_t
+HistoryManagerImpl::publishQueuedHistory()
 {
-    mCatchup = make_shared<CatchupStateMachine>(
-        mApp, 0, CATCHUP_BUCKET_REPAIR, desiredState,
-        [this, handler](asio::error_code const& ec, CatchupMode mode,
-                        LedgerHeaderHistoryEntry const& lastClosed)
+#ifdef BUILD_TESTS
+    if (!mPublicationEnabled)
+    {
+        CLOG(INFO, "History")
+            << "Publication explicitly disabled, so not publishing";
+        return 0;
+    }
+#endif
+
+    std::string state;
+
+    auto prep = mApp.getDatabase().getPreparedStatement(
+        "SELECT state FROM publishqueue"
+        " ORDER BY ledger ASC LIMIT 1;");
+    auto& st = prep.statement();
+    soci::indicator stateIndicator;
+    st.exchange(soci::into(state, stateIndicator));
+    st.define_and_bind();
+    st.execute(true);
+    if (st.got_data() && stateIndicator == soci::indicator::i_ok)
+    {
+        HistoryArchiveState has;
+        has.fromString(state);
+        takeSnapshotAndPublish(has);
+        return 1;
+    }
+    return 0;
+}
+
+std::vector<HistoryArchiveState>
+HistoryManagerImpl::getPublishQueueStates()
+{
+    std::vector<HistoryArchiveState> states;
+    std::string state;
+    auto prep = mApp.getDatabase().getPreparedStatement(
+        "SELECT state FROM publishqueue;");
+    auto& st = prep.statement();
+    st.exchange(soci::into(state));
+    st.define_and_bind();
+    st.execute(true);
+    while (st.got_data())
+    {
+        states.emplace_back();
+        states.back().fromString(state);
+        st.fetch();
+    }
+    return states;
+}
+
+PublishQueueBuckets::BucketCount
+HistoryManagerImpl::loadBucketsReferencedByPublishQueue()
+{
+    auto states = getPublishQueueStates();
+    PublishQueueBuckets::BucketCount result{};
+    for (auto const& s : states)
+    {
+        auto sb = s.allBuckets();
+        for (auto const& b : sb)
         {
-            // Destroy this machine at the end of the call to `handler`
-            auto m = this->mCatchup;
-            this->mCatchup.reset();
-            handler(ec);
-        });
-    mCatchup->begin();
+            result[b]++;
+        }
+    }
+    return result;
+}
+
+std::vector<std::string>
+HistoryManagerImpl::getBucketsReferencedByPublishQueue()
+{
+    if (!mPublishQueueBucketsFilled)
+    {
+        mPublishQueueBuckets.setBuckets(loadBucketsReferencedByPublishQueue());
+        mPublishQueueBucketsFilled = true;
+    }
+
+    std::vector<std::string> buckets;
+    for (auto const& s : mPublishQueueBuckets.map())
+    {
+        buckets.push_back(s.first);
+    }
+
+    return buckets;
+}
+
+std::vector<std::string>
+HistoryManagerImpl::getMissingBucketsReferencedByPublishQueue()
+{
+    auto states = getPublishQueueStates();
+    std::set<std::string> buckets;
+    for (auto const& s : states)
+    {
+        auto sb = mApp.getBucketManager().checkForMissingBucketsFiles(s);
+        buckets.insert(sb.begin(), sb.end());
+    }
+    return std::vector<std::string>(buckets.begin(), buckets.end());
 }
 
 void
-HistoryManagerImpl::catchupHistory(
-    uint32_t initLedger, CatchupMode mode,
-    std::function<void(asio::error_code const& ec, CatchupMode mode,
-                       LedgerHeaderHistoryEntry const& lastClosed)> handler,
-    bool manualCatchup)
+HistoryManagerImpl::historyPublished(
+    uint32_t ledgerSeq, std::vector<std::string> const& originalBuckets,
+    bool success)
 {
-    // To repair buckets, call `downloadMissingBuckets()` instead.
-    assert(mode != CATCHUP_BUCKET_REPAIR);
-
-    if (mCatchup)
+    if (success)
     {
-        throw std::runtime_error("Catchup already in progress");
-    }
-    mCatchupStart.Mark();
-    mManualCatchup = manualCatchup;
-
-    mCatchup = make_shared<CatchupStateMachine>(
-        mApp, initLedger, mode, getLastClosedHistoryArchiveState(),
-        [this, handler](asio::error_code const& ec, CatchupMode mode,
-                        LedgerHeaderHistoryEntry const& lastClosed)
+        auto iter = mEnqueueTimes.find(ledgerSeq);
+        if (iter != mEnqueueTimes.end())
         {
-            if (ec)
-            {
-                this->mCatchupFailure.Mark();
-            }
-            else
-            {
-                this->mCatchupSuccess.Mark();
-            }
-            // Tear down the catchup state machine when complete then call our
-            // caller's handler. Must keep the state machine alive long enough
-            // for the callback, though, to avoid killing things living in
-            // lambdas.
-            auto m = this->mCatchup;
-            this->mCatchup.reset();
-            handler(ec, mode, lastClosed);
-        });
-    mCatchup->begin();
+            auto now = std::chrono::steady_clock::now();
+            CLOG(DEBUG, "Perf")
+                << "Published history for ledger " << ledgerSeq << " in "
+                << std::chrono::duration<double>(now - iter->second).count()
+                << " seconds";
+            mEnqueueToPublishTimer.Update(now - iter->second);
+            mEnqueueTimes.erase(iter);
+        }
+
+        this->mPublishSuccess.Mark();
+        auto timer = mApp.getDatabase().getDeleteTimer("publishqueue");
+        auto prep = mApp.getDatabase().getPreparedStatement(
+            "DELETE FROM publishqueue WHERE ledger = :lg;");
+        auto& st = prep.statement();
+        st.exchange(soci::use(ledgerSeq));
+        st.define_and_bind();
+        st.execute(true);
+
+        mPublishQueueBuckets.removeBuckets(originalBuckets);
+    }
+    else
+    {
+        this->mPublishFailure.Mark();
+    }
+    mPublishWork.reset();
+    mApp.postOnMainThread([this]() { this->publishQueuedHistory(); },
+                          "HistoryManagerImpl: publishQueuedHistory");
 }
 
 uint64_t
-HistoryManagerImpl::getPublishSkipCount()
+HistoryManagerImpl::getPublishQueueCount() const
 {
-    return mPublishSkip.count();
+    return mPublishQueued;
 }
 
 uint64_t
-HistoryManagerImpl::getPublishQueueCount()
-{
-    return mPublishQueue.count();
-}
-
-uint64_t
-HistoryManagerImpl::getPublishDelayCount()
-{
-    return mPublishDelay.count();
-}
-
-uint64_t
-HistoryManagerImpl::getPublishStartCount()
-{
-    return mPublishStart.count();
-}
-
-uint64_t
-HistoryManagerImpl::getPublishSuccessCount()
+HistoryManagerImpl::getPublishSuccessCount() const
 {
     return mPublishSuccess.count();
 }
 
 uint64_t
-HistoryManagerImpl::getPublishFailureCount()
+HistoryManagerImpl::getPublishFailureCount() const
 {
     return mPublishFailure.count();
 }
 
-uint64_t
-HistoryManagerImpl::getCatchupStartCount()
+#ifdef BUILD_TESTS
+void
+HistoryManagerImpl::setPublicationEnabled(bool enabled)
 {
-    return mCatchupStart.count();
+    CLOG(INFO, "History") << (enabled ? "Enabling" : "Disabling")
+                          << " history publication";
+    mPublicationEnabled = enabled;
 }
-
-uint64_t
-HistoryManagerImpl::getCatchupSuccessCount()
-{
-    return mCatchupSuccess.count();
-}
-
-uint64_t
-HistoryManagerImpl::getCatchupFailureCount()
-{
-    return mCatchupFailure.count();
-}
+#endif
 }

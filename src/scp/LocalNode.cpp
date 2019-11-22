@@ -4,27 +4,30 @@
 
 #include "LocalNode.h"
 
-#include "util/types.h"
-#include "xdrpp/marshal.h"
-#include "util/Logging.h"
 #include "crypto/Hex.h"
+#include "crypto/KeyUtils.h"
 #include "crypto/SHA.h"
+#include "lib/json/json.h"
+#include "scp/QuorumSetUtils.h"
+#include "util/Logging.h"
+#include "util/XDROperators.h"
+#include "util/numeric.h"
+#include "xdrpp/marshal.h"
+#include <algorithm>
+#include <functional>
+#include <unordered_set>
 
 namespace stellar
 {
-using xdr::operator==;
-using xdr::operator<;
-
-LocalNode::LocalNode(SecretKey const& secretKey, SCPQuorumSet const& qSet,
-                     SCP* scp)
-    : mNodeID(secretKey.getPublicKey())
-    , mSecretKey(secretKey)
-    , mQSet(qSet)
-    , mQSetHash(sha256(xdr::xdr_to_opaque(qSet)))
-    , mSCP(scp)
+LocalNode::LocalNode(NodeID const& nodeID, bool isValidator,
+                     SCPQuorumSet const& qSet, SCP* scp)
+    : mNodeID(nodeID), mIsValidator(isValidator), mQSet(qSet), mSCP(scp)
 {
+    normalizeQSet(mQSet);
+    mQSetHash = sha256(xdr::xdr_to_opaque(mQSet));
+
     CLOG(INFO, "SCP") << "LocalNode::LocalNode"
-                      << "@" << PubKeyUtils::toShortString(mNodeID)
+                      << "@" << KeyUtils::toShortString(mNodeID)
                       << " qSet: " << hexAbbrev(mQSetHash);
 
     mSingleQSet = std::make_shared<SCPQuorumSet>(buildSingletonQSet(mNodeID));
@@ -59,20 +62,15 @@ LocalNode::getQuorumSetHash()
     return mQSetHash;
 }
 
-SecretKey const&
-LocalNode::getSecretKey()
-{
-    return mSecretKey;
-}
-
 SCPQuorumSetPtr
 LocalNode::getSingletonQSet(NodeID const& nodeID)
 {
     return std::make_shared<SCPQuorumSet>(buildSingletonQSet(nodeID));
 }
+
 void
-LocalNode::forAllNodesInternal(SCPQuorumSet const& qset,
-                               std::function<void(NodeID const&)> proc)
+LocalNode::forAllNodes(SCPQuorumSet const& qset,
+                       std::function<void(NodeID const&)> proc)
 {
     for (auto const& n : qset.validators)
     {
@@ -80,24 +78,17 @@ LocalNode::forAllNodesInternal(SCPQuorumSet const& qset,
     }
     for (auto const& q : qset.innerSets)
     {
-        forAllNodesInternal(q, proc);
+        forAllNodes(q, proc);
     }
 }
 
-// runs proc over all nodes contained in qset
-void
-LocalNode::forAllNodes(SCPQuorumSet const& qset,
-                       std::function<void(NodeID const&)> proc)
+uint64
+LocalNode::computeWeight(uint64 m, uint64 total, uint64 threshold)
 {
-    std::set<NodeID> done;
-    forAllNodesInternal(qset, [&](NodeID const& n)
-                        {
-                            auto ins = done.insert(n);
-                            if (ins.second)
-                            {
-                                proc(n);
-                            }
-                        });
+    uint64 res;
+    assert(threshold <= total);
+    bigDivide(res, m, threshold, total, ROUND_UP);
+    return res;
 }
 
 // if a validator is repeated multiple times its weight is only the
@@ -113,7 +104,7 @@ LocalNode::getNodeWeight(NodeID const& nodeID, SCPQuorumSet const& qset)
     {
         if (qsetNode == nodeID)
         {
-            bigDivide(res, UINT64_MAX, n, d);
+            res = computeWeight(UINT64_MAX, d, n);
             return res;
         }
     }
@@ -123,7 +114,7 @@ LocalNode::getNodeWeight(NodeID const& nodeID, SCPQuorumSet const& qset)
         uint64 leafW = getNodeWeight(nodeID, q);
         if (leafW)
         {
-            bigDivide(res, leafW, n, d);
+            res = computeWeight(leafW, d, n);
             return res;
         }
     }
@@ -227,13 +218,13 @@ LocalNode::isVBlocking(SCPQuorumSet const& qSet,
 
 bool
 LocalNode::isVBlocking(SCPQuorumSet const& qSet,
-                       std::map<NodeID, SCPStatement> const& map,
+                       std::map<NodeID, SCPEnvelope> const& map,
                        std::function<bool(SCPStatement const&)> const& filter)
 {
     std::vector<NodeID> pNodes;
     for (auto const& it : map)
     {
-        if (filter(it.second))
+        if (filter(it.second.statement))
         {
             pNodes.push_back(it.first);
         }
@@ -244,14 +235,14 @@ LocalNode::isVBlocking(SCPQuorumSet const& qSet,
 
 bool
 LocalNode::isQuorum(
-    SCPQuorumSet const& qSet, std::map<NodeID, SCPStatement> const& map,
+    SCPQuorumSet const& qSet, std::map<NodeID, SCPEnvelope> const& map,
     std::function<SCPQuorumSetPtr(SCPStatement const&)> const& qfun,
     std::function<bool(SCPStatement const&)> const& filter)
 {
     std::vector<NodeID> pNodes;
     for (auto const& it : map)
     {
-        if (filter(it.second))
+        if (filter(it.second.statement))
         {
             pNodes.push_back(it.first);
         }
@@ -262,9 +253,16 @@ LocalNode::isQuorum(
     {
         count = pNodes.size();
         std::vector<NodeID> fNodes(pNodes.size());
-        auto quorumFilter = [&](NodeID nodeID) -> bool
-        {
-            return isQuorumSlice(*qfun(map.find(nodeID)->second), pNodes);
+        auto quorumFilter = [&](NodeID nodeID) -> bool {
+            auto qSetPtr = qfun(map.find(nodeID)->second.statement);
+            if (qSetPtr)
+            {
+                return isQuorumSlice(*qSetPtr, pNodes);
+            }
+            else
+            {
+                return false;
+            }
         };
         auto it = std::copy_if(pNodes.begin(), pNodes.end(), fNodes.begin(),
                                quorumFilter);
@@ -275,9 +273,147 @@ LocalNode::isQuorum(
     return isQuorumSlice(qSet, pNodes);
 }
 
+std::vector<NodeID>
+LocalNode::findClosestVBlocking(
+    SCPQuorumSet const& qset, std::map<NodeID, SCPEnvelope> const& map,
+    std::function<bool(SCPStatement const&)> const& filter,
+    NodeID const* excluded)
+{
+    std::set<NodeID> s;
+    for (auto const& n : map)
+    {
+        if (filter(n.second.statement))
+        {
+            s.emplace(n.first);
+        }
+    }
+    return findClosestVBlocking(qset, s, excluded);
+}
+
+std::vector<NodeID>
+LocalNode::findClosestVBlocking(SCPQuorumSet const& qset,
+                                std::set<NodeID> const& nodes,
+                                NodeID const* excluded)
+{
+    size_t leftTillBlock =
+        ((1 + qset.validators.size() + qset.innerSets.size()) - qset.threshold);
+
+    std::vector<NodeID> res;
+
+    // first, compute how many top level items need to be blocked
+    for (auto const& validator : qset.validators)
+    {
+        if (!excluded || !(validator == *excluded))
+        {
+            auto it = nodes.find(validator);
+            if (it == nodes.end())
+            {
+                leftTillBlock--;
+                if (leftTillBlock == 0)
+                {
+                    // already blocked
+                    return std::vector<NodeID>();
+                }
+            }
+            else
+            {
+                // save this for later
+                res.emplace_back(validator);
+            }
+        }
+    }
+
+    struct orderBySize
+    {
+        bool
+        operator()(std::vector<NodeID> const& v1,
+                   std::vector<NodeID> const& v2) const
+        {
+            return v1.size() < v2.size();
+        }
+    };
+
+    std::multiset<std::vector<NodeID>, orderBySize> resInternals;
+
+    for (auto const& inner : qset.innerSets)
+    {
+        auto v = findClosestVBlocking(inner, nodes, excluded);
+        if (v.size() == 0)
+        {
+            leftTillBlock--;
+            if (leftTillBlock == 0)
+            {
+                // already blocked
+                return std::vector<NodeID>();
+            }
+        }
+        else
+        {
+            resInternals.emplace(v);
+        }
+    }
+
+    // use the top level validators to get closer
+    if (res.size() > leftTillBlock)
+    {
+        res.resize(leftTillBlock);
+    }
+    leftTillBlock -= res.size();
+
+    // use subsets to get closer, using the smallest ones first
+    auto it = resInternals.begin();
+    while (leftTillBlock != 0 && it != resInternals.end())
+    {
+        res.insert(res.end(), it->begin(), it->end());
+        leftTillBlock--;
+        it++;
+    }
+
+    return res;
+}
+
+Json::Value
+LocalNode::toJson(SCPQuorumSet const& qSet, bool fullKeys) const
+{
+    return toJson(qSet, [&](PublicKey const& k) {
+        return mSCP->getDriver().toStrKey(k, fullKeys);
+    });
+}
+
+Json::Value
+LocalNode::toJson(SCPQuorumSet const& qSet,
+                  std::function<std::string(PublicKey const&)> r)
+{
+    Json::Value ret;
+    ret["t"] = qSet.threshold;
+    auto& entries = ret["v"];
+    for (auto const& v : qSet.validators)
+    {
+        entries.append(r(v));
+    }
+    for (auto const& s : qSet.innerSets)
+    {
+        entries.append(toJson(s, r));
+    }
+    return ret;
+}
+
+std::string
+LocalNode::to_string(SCPQuorumSet const& qSet) const
+{
+    Json::FastWriter fw;
+    return fw.write(toJson(qSet, false));
+}
+
 NodeID const&
 LocalNode::getNodeID()
 {
     return mNodeID;
+}
+
+bool
+LocalNode::isValidator()
+{
+    return mIsValidator;
 }
 }

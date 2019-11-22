@@ -4,27 +4,14 @@
 // under the Apache License, Version 2.0. See the COPYING file at the root
 // of this distribution or at http://www.apache.org/licenses/LICENSE-2.0
 
-#include <map>
-#include <functional>
-#include "xdr/Stellar-SCP.h"
 #include "overlay/Peer.h"
-#include "util/Timer.h"
-#include "util/NonCopyable.h"
-#include <util/optional.h>
 #include "util/HashOfHash.h"
-
-/*
-Manages asking for Transaction or Quorum sets from Peers
-
-The ItemFetcher returns instances of the Tracker class. There exists
-exactly one tracker per item. The tracker is used both to maintain
-the state of the search, as well as to isolate cancellations. Instead
-of having a `stopFetching(itemID)` method, which would necessitate
-extra code to keep track of the different clients, ItemFetcher stops
-fetching an item when all the shared_ptrs to the item's tracker have
-been released.
-
-*/
+#include "util/NonCopyable.h"
+#include "util/Timer.h"
+#include <deque>
+#include <functional>
+#include <map>
+#include <util/optional.h>
 
 namespace medida
 {
@@ -33,93 +20,84 @@ class Counter;
 
 namespace stellar
 {
+
+class Tracker;
 class TxSetFrame;
 struct SCPQuorumSet;
 using TxSetFramePtr = std::shared_ptr<TxSetFrame>;
 using SCPQuorumSetPtr = std::shared_ptr<SCPQuorumSet>;
+using AskPeer = std::function<void(Peer::pointer, Hash)>;
 
-static std::chrono::milliseconds const MS_TO_WAIT_FOR_FETCH_REPLY{500};
-
-class Tracker
+/**
+ * @class ItemFetcher
+ *
+ * Manages asking for Transaction or Quorum sets from Peers
+ *
+ * The ItemFetcher keeps instances of the Tracker class. There exists exactly
+ * one Tracker per item. The tracker is used to maintain the state of the
+ * search.
+ */
+class ItemFetcher : private NonMovableOrCopyable
 {
-  protected:
-    template <class T> friend class ItemFetcher;
-    Application& mApp;
-    Peer::pointer mLastAskedPeer;
-    std::vector<Peer::pointer> mPeersAsked;
-    VirtualTimer mTimer;
-    bool mIsStopped = false;
-    std::vector<SCPEnvelope> mWaitingEnvelopes;
-    uint256 mItemID;
-
-    bool clearEnvelopesBelow(uint64 slotIndex);
-
-    void listen(const SCPEnvelope& env);
-
-    virtual void askPeer(Peer::pointer peer) = 0;
-
-    void doesntHave(Peer::pointer peer);
-    void tryNextPeer();
-
   public:
-    explicit Tracker(Application& app, uint256 const& id)
-        : mApp(app), mTimer(app), mItemID(id)
-    {
-    }
+    using TrackerPtr = std::shared_ptr<Tracker>;
 
-    virtual ~Tracker();
-};
+    /**
+     * Create ItemFetcher that fetches data using @p askPeer delegate.
+     */
+    explicit ItemFetcher(Application& app, AskPeer askPeer);
 
-template <class TrackerT> class ItemFetcher : private NonMovableOrCopyable
-{
+    /**
+     * Fetch data identified by @p hash and needed by @p envelope. Multiple
+     * envelopes may require one set of data.
+     */
+    void fetch(Hash itemHash, const SCPEnvelope& envelope);
 
-  public:
-    using TrackerPtr = std::shared_ptr<TrackerT>;
+    /**
+     * Stops fetching data identified by @p hash for @p envelope. If other
+     * envelopes requires this data, it is still being fetched, but
+     * @p envelope will not be notified about it.
+     */
+    void stopFetch(Hash itemHash, const SCPEnvelope& envelope);
 
-    explicit ItemFetcher(Application& app);
+    /**
+     * Return biggest slot index seen for given hash. If 0, then given hash
+     * is not being fetched.
+     */
+    uint64 getLastSeenSlotIndex(Hash itemHash) const;
 
-    void fetch(uint256 itemID, const SCPEnvelope& envelope);
+    /**
+     * Return envelopes that require data identified by @p hash.
+     */
+    std::vector<SCPEnvelope> fetchingFor(Hash itemHash) const;
 
+    /**
+     * Called periodically to remove old envelopes from list (with ledger id
+     * below some @p slotIndex). Can also remove @see Tracker instances when
+     * non needed anymore.
+     */
     void stopFetchingBelow(uint64 slotIndex);
 
-    void doesntHave(uint256 const& itemID, Peer::pointer peer);
+    /**
+     * Called when given @p peer informs that it does not have data identified
+     * by @p itemHash.
+     */
+    void doesntHave(Hash const& itemHash, Peer::pointer peer);
 
-    // recv: notifies all listeners of the arrival of the item
-    void recv(uint256 itemID);
+    /**
+     * Called when data with given @p itemHash was received. All envelopes
+     * added before with @see fetch and the same @p itemHash will be resent
+     * to Herder, matching @see Tracker will be cleaned up.
+     */
+    void recv(Hash itemHash);
 
   protected:
     void stopFetchingBelowInternal(uint64 slotIndex);
 
     Application& mApp;
-    std::map<uint256, std::shared_ptr<TrackerT>> mTrackers;
+    std::map<Hash, std::shared_ptr<Tracker>> mTrackers;
 
-    // NB: There are many ItemFetchers in the system at once, but we are sharing
-    // a single counter for all the items being fetched by all of them. Be
-    // careful, therefore, to only increment and decrement this counter, not set
-    // it absolutely.
-    medida::Counter& mItemMapSize;
+  private:
+    AskPeer mAskPeer;
 };
-
-class TxSetTracker : public Tracker
-{
-  public:
-    TxSetTracker(Application& app, uint256 id) : Tracker(app, id)
-    {
-    }
-
-    void askPeer(Peer::pointer peer) override;
-};
-
-class QuorumSetTracker : public Tracker
-{
-  public:
-    QuorumSetTracker(Application& app, uint256 id) : Tracker(app, id)
-    {
-    }
-
-    void askPeer(Peer::pointer peer) override;
-};
-
-using TxSetTrackerPtr = ItemFetcher<TxSetTracker>::TrackerPtr;
-using QuorumSetTrackerPtr = ItemFetcher<QuorumSetTracker>::TrackerPtr;
 }

@@ -20,15 +20,25 @@
 *.trs
 *.db
 
+# sourcetrail
+compile_commands.json
+*.srctrlbm
+*.srctrldb
+*.srctrlprj
+
 # text editors
 *~
 *.swp
+**/.vscode/*
 
 .libs
 .deps
 .dirstamp
 
-/src/StellarCoreVersion.h
+/INSTALL
+
+/src/main/StellarCoreVersion.cpp
+/src/testdata
 /src/xdr/*.h
 /Makefile
 /Makefile.in
@@ -55,8 +65,12 @@
 /test-driver
 /stamp-h1
 /ylwrap
+/docs/stellar-core.1
+/docs/stellar-core.1.in
 /src/Makefile
 /src/Makefile.in
+/lib/Makefile
+/lib/Makefile.in
 /src/src.mk
 /lib/medida.mk
 /lib/lib.mk
@@ -70,4 +84,7 @@
 **/Build/*
 **/generated/*
 **/x64/*
+*.opendb
 *.vcxproj.user
+**/.vs/*
+

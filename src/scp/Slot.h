@@ -4,15 +4,16 @@
 // under the Apache License, Version 2.0. See the COPYING file at the root
 // of this distribution or at http://www.apache.org/licenses/LICENSE-2.0
 
-#include <memory>
-#include <functional>
-#include <string>
-#include <set>
-#include <utility>
-#include "scp/SCP.h"
-#include "lib/json/json-forwards.h"
 #include "BallotProtocol.h"
+#include "LocalNode.h"
 #include "NominationProtocol.h"
+#include "lib/json/json-forwards.h"
+#include "scp/SCP.h"
+#include <functional>
+#include <memory>
+#include <set>
+#include <string>
+#include <utility>
 
 namespace stellar
 {
@@ -32,7 +33,17 @@ class Slot : public std::enable_shared_from_this<Slot>
 
     // keeps track of all statements seen so far for this slot.
     // it is used for debugging purpose
-    std::vector<SCPStatement> mStatementsHistory;
+    struct HistoricalStatement
+    {
+        time_t mWhen;
+        SCPStatement mStatement;
+        bool mValidated;
+    };
+
+    std::vector<HistoricalStatement> mStatementsHistory;
+
+    // true if the Slot was fully validated
+    bool mFullyValidated;
 
   public:
     Slot(uint64 slotIndex, SCP& SCP);
@@ -69,16 +80,31 @@ class Slot : public std::enable_shared_from_this<Slot>
 
     Value const& getLatestCompositeCandidate();
 
-    // returns the latest messages the slot emited
-    std::vector<SCPEnvelope> getLatestMessages() const;
+    // returns the latest messages the slot emitted
+    std::vector<SCPEnvelope> getLatestMessagesSend() const;
+
+    // forces the state to match the one in the envelope
+    // this is used when rebuilding the state after a crash for example
+    void setStateFromEnvelope(SCPEnvelope const& e);
+
+    // returns the latest messages known for this slot
+    std::vector<SCPEnvelope> getCurrentState() const;
+
+    // returns the latest message from a node
+    // or nullptr if not found
+    SCPEnvelope const* getLatestMessage(NodeID const& id) const;
+
+    // returns messages that helped this slot externalize
+    std::vector<SCPEnvelope> getExternalizingState() const;
 
     // records the statement in the historical record for this slot
     void recordStatement(SCPStatement const& st);
 
     // Process a newly received envelope for this slot and update the state of
     // the slot accordingly.
-    // Must exclusively receive envelopes whose payload type is STATEMENT
-    SCP::EnvelopeState processEnvelope(SCPEnvelope const& envelope);
+    // self: set to true when node wants to record its own messages (potentially
+    // triggering more transitions)
+    SCP::EnvelopeState processEnvelope(SCPEnvelope const& envelope, bool self);
 
     bool abandonBallot();
 
@@ -93,6 +119,14 @@ class Slot : public std::enable_shared_from_this<Slot>
     bool nominate(Value const& value, Value const& previousValue,
                   bool timedout);
 
+    void stopNomination();
+
+    // returns the current nomination leaders
+    std::set<NodeID> getNominationLeaders() const;
+
+    bool isFullyValidated() const;
+    void setFullyValidated(bool fullyValidated);
+
     // ** status methods
 
     size_t
@@ -103,7 +137,11 @@ class Slot : public std::enable_shared_from_this<Slot>
 
     // returns information about the local state in JSON format
     // including historical statements if available
-    void dumpInfo(Json::Value& ret);
+    Json::Value getJsonInfo(bool fullKeys = false);
+
+    // returns information about the quorum for a given node
+    Json::Value getJsonQuorumInfo(NodeID const& id, bool summary,
+                                  bool fullKeys = false);
 
     // returns the hash of the QuorumSet that should be downloaded
     // with the statement.
@@ -115,29 +153,22 @@ class Slot : public std::enable_shared_from_this<Slot>
     static std::vector<Value> getStatementValues(SCPStatement const& st);
 
     // returns the QuorumSet that should be used for a node given the
-    // statement
+    // statement (singleton for externalize)
     SCPQuorumSetPtr getQuorumSetFromStatement(SCPStatement const& st);
 
     // wraps a statement in an envelope (sign it, etc)
     SCPEnvelope createEnvelope(SCPStatement const& statement);
-
-    // ** helper methods to stringify ballot for logging
-    std::string getValueString(Value const& v) const;
-    std::string ballotToStr(SCPBallot const& ballot) const;
-    std::string ballotToStr(std::unique_ptr<SCPBallot> const& ballot) const;
-    std::string envToStr(SCPEnvelope const& envelope) const;
-    std::string envToStr(SCPStatement const& st) const;
 
     // ** federated agreement helper functions
 
     // returns true if the statement defined by voted and accepted
     // should be accepted
     bool federatedAccept(StatementPredicate voted, StatementPredicate accepted,
-                         std::map<NodeID, SCPStatement> const& statements);
+                         std::map<NodeID, SCPEnvelope> const& envs);
     // returns true if the statement defined by voted
     // is ratified
     bool federatedRatify(StatementPredicate voted,
-                         std::map<NodeID, SCPStatement> const& statements);
+                         std::map<NodeID, SCPEnvelope> const& envs);
 
     std::shared_ptr<LocalNode> getLocalNode();
 
@@ -146,5 +177,9 @@ class Slot : public std::enable_shared_from_this<Slot>
         NOMINATION_TIMER = 0,
         BALLOT_PROTOCOL_TIMER = 1
     };
+
+  protected:
+    std::vector<SCPEnvelope> getEntireCurrentState();
+    friend class TestSCP;
 };
 }

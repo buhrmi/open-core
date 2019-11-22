@@ -1,33 +1,40 @@
-﻿#include "LedgerCloseData.h"
-#include "main/Application.h"
+﻿#include "util/asio.h"
+#include "LedgerCloseData.h"
 #include "crypto/Hex.h"
+#include "herder/Upgrades.h"
+#include "main/Application.h"
+#include "util/Logging.h"
+#include "util/XDROperators.h"
 #include <overlay/OverlayManager.h>
 #include <xdrpp/marshal.h>
-#include "util/Logging.h"
 
 using namespace std;
 
 namespace stellar
 {
 
-LedgerCloseData::LedgerCloseData(uint32_t ledgerSeq, TxSetFramePtr txSet,
-                                 StellarValue const& v)
+LedgerCloseData::LedgerCloseData(
+    uint32_t ledgerSeq, std::shared_ptr<AbstractTxSetFrameForApply> txSet,
+    StellarValue const& v)
     : mLedgerSeq(ledgerSeq), mTxSet(txSet), mValue(v)
 {
     Value x;
     Value y(x.begin(), x.end());
 
-    using xdr::operator==;
     assert(txSet->getContentsHash() == mValue.txSetHash);
 }
 
 std::string
-stellarValueToString(StellarValue const& sv)
+stellarValueToString(Config const& c, StellarValue const& sv)
 {
     std::stringstream res;
 
-    res << "[ "
-        << " txH: " << hexAbbrev(sv.txSetHash) << ", ct: " << sv.closeTime
+    res << "[";
+    if (sv.ext.v() == STELLAR_VALUE_SIGNED)
+    {
+        res << " SIGNED@" << c.toShortString(sv.ext.lcValueSignature().nodeID);
+    }
+    res << " txH: " << hexAbbrev(sv.txSetHash) << ", ct: " << sv.closeTime
         << ", upgrades: [";
     for (auto const& upgrade : sv.upgrades)
     {
@@ -42,17 +49,7 @@ stellarValueToString(StellarValue const& sv)
             {
                 LedgerUpgrade lupgrade;
                 xdr::xdr_from_opaque(upgrade, lupgrade);
-                switch (lupgrade.type())
-                {
-                case LEDGER_UPGRADE_VERSION:
-                    res << "VERSION=" << lupgrade.newLedgerVersion();
-                    break;
-                case LEDGER_UPGRADE_BASE_FEE:
-                    res << "BASE_FEE=" << lupgrade.newBaseFee();
-                    break;
-                default:
-                    res << "<unsupported>";
-                }
+                res << Upgrades::toString(lupgrade);
             }
             catch (std::exception&)
             {

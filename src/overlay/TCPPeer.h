@@ -15,34 +15,27 @@ class Meter;
 
 namespace stellar
 {
+
+static auto const MAX_UNAUTH_MESSAGE_SIZE = 0x1000;
+static auto const MAX_MESSAGE_SIZE = 0x1000000;
+
 // Peer that communicates via a TCP socket.
 class TCPPeer : public Peer
 {
-    std::string mIP;
-    std::shared_ptr<asio::ip::tcp::socket> mSocket;
-    VirtualTimer mReadIdle;
-    VirtualTimer mWriteIdle;
+  public:
+    typedef asio::buffered_stream<asio::ip::tcp::socket> SocketType;
+
+  private:
+    std::shared_ptr<SocketType> mSocket;
     std::vector<uint8_t> mIncomingHeader;
     std::vector<uint8_t> mIncomingBody;
-    asio::io_service::strand mStrand;
 
     std::queue<std::shared_ptr<xdr::msg_ptr>> mWriteQueue;
+    bool mWriting{false};
+    bool mDelayedShutdown{false};
+    bool mShutdownScheduled{false};
 
-    medida::Meter& mMessageRead;
-    medida::Meter& mMessageWrite;
-    medida::Meter& mByteRead;
-    medida::Meter& mByteWrite;
-    medida::Meter& mErrorRead;
-    medida::Meter& mErrorWrite;
-    medida::Meter& mTimeoutRead;
-    medida::Meter& mTimeoutWrite;
-
-    void timeoutRead(asio::error_code const& error);
-    void timeoutWrite(asio::error_code const& error);
-    void resetWriteIdle();
-    void resetReadIdle();
     void recvMessage();
-    bool recvHello(StellarMessage const& msg) override;
     void sendMessage(xdr::msg_ptr&& xdrBytes) override;
 
     void messageSender();
@@ -57,26 +50,25 @@ class TCPPeer : public Peer
                            std::size_t bytes_transferred) override;
     void readBodyHandler(asio::error_code const& error,
                          std::size_t bytes_transferred) override;
-
-    VirtualTimer mAsioLoopBreaker;
+    void shutdown();
 
   public:
     typedef std::shared_ptr<TCPPeer> pointer;
 
     TCPPeer(Application& app, Peer::PeerRole role,
-            std::shared_ptr<asio::ip::tcp::socket> socket); // hollow
-                                                            // constuctor; use
-                                                            // `initiate` or
-                                                            // `accept` instead
+            std::shared_ptr<SocketType> socket); // hollow
+                                                 // constuctor; use
+                                                 // `initiate` or
+                                                 // `accept` instead
 
-    static pointer initiate(Application& app, std::string const& ip,
-                            unsigned short port);
-    static pointer accept(Application& app,
-                          std::shared_ptr<asio::ip::tcp::socket> socket);
+    static pointer initiate(Application& app, PeerBareAddress const& address);
+    static pointer accept(Application& app, std::shared_ptr<SocketType> socket);
 
     virtual ~TCPPeer();
 
-    virtual void drop() override;
-    virtual std::string getIP() override;
+    virtual void drop(std::string const& reason, DropDirection dropDirection,
+                      DropMode dropMode) override;
+
+    std::string getIP() const override;
 };
 }

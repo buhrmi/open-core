@@ -4,11 +4,11 @@
 // under the Apache License, Version 2.0. See the COPYING file at the root
 // of this distribution or at http://www.apache.org/licenses/LICENSE-2.0
 
-#include <map>
-#include <set>
-#include <memory>
-#include <functional>
 #include <chrono>
+#include <functional>
+#include <map>
+#include <memory>
+#include <set>
 
 #include "xdr/Stellar-SCP.h"
 
@@ -23,12 +23,19 @@ class SCPDriver
     {
     }
 
-    // Envelope signature/verification
+    // Envelope signature
     virtual void signEnvelope(SCPEnvelope& envelope) = 0;
-    virtual bool verifyEnvelope(SCPEnvelope const& envelope) = 0;
 
-    // Delegates the retrieval of the quorum set designated by `qSetHash` to
-    // the user of SCP.
+    // Retrieves a quorum set from its hash
+    //
+    // All SCP statement (see `SCPNomination` and `SCPStatement`) include
+    // a quorum set hash.
+    // SCP does not define how quorum sets are exchanged between nodes,
+    // hence their retrieval is delegated to the user of SCP.
+    // The return value is not cached by SCP, as quorum sets are transient.
+    //
+    // `nullptr` is a valid return value which cause the statement to be
+    // considered invalid.
     virtual SCPQuorumSetPtr getQSet(Hash const& qSetHash) = 0;
 
     // Users of the SCP library should inherit from SCPDriver and implement the
@@ -46,16 +53,28 @@ class SCPDriver
     // is done. It should be used to filter out values that are not compatible
     // with the current state of that node. Unvalidated values can never
     // externalize.
-    virtual bool
-    validateValue(uint64 slotIndex, Value const& value)
+    // If the value cannot be validated (node is missing some context) but
+    // passes
+    // the validity checks, kMaybeValidValue can be returned. This will cause
+    // the current slot to be marked as a non validating slot: the local node
+    // will abstain from emiting its position.
+    // validation can be *more* restrictive during nomination as needed
+    enum ValidationLevel
     {
-        return true;
+        kInvalidValue,        // value is invalid for sure
+        kFullyValidatedValue, // value is valid for sure
+        kMaybeValidValue      // value may be valid
+    };
+    virtual ValidationLevel
+    validateValue(uint64 slotIndex, Value const& value, bool nomination)
+    {
+        return kMaybeValidValue;
     }
 
     // `extractValidValue` transforms the value, if possible to a different
-    // value that the local node would agree to.
+    // value that the local node would agree to (fully validated).
     // This is used during nomination when encountering an invalid value (ie
-    // validateValue returned `false` for this value).
+    // validateValue did not return `kFullyValidatedValue` for this value).
     // returning Value() means no valid value could be extracted
     virtual Value
     extractValidValue(uint64 slotIndex, Value const& value)
@@ -67,11 +86,18 @@ class SCPDriver
     // default implementation is the hash of the value
     virtual std::string getValueString(Value const& v) const;
 
+    // `toStrKey` returns StrKey encoded string representation
+    virtual std::string toStrKey(PublicKey const& pk,
+                                 bool fullKey = true) const;
+
+    // `toShortString` converts to the common name of a key if found
+    virtual std::string toShortString(PublicKey const& pk) const;
+
     // `computeHashNode` is used by the nomination protocol to
     // randomize the order of messages between nodes.
     virtual uint64 computeHashNode(uint64 slotIndex, Value const& prev,
-                               bool isPriority, int32_t roundNumber,
-                               NodeID const& nodeID);
+                                   bool isPriority, int32_t roundNumber,
+                                   NodeID const& nodeID);
 
     // `computeValueHash` is used by the nomination protocol to
     // randomize the relative order between values.
@@ -84,6 +110,7 @@ class SCPDriver
                                     std::set<Value> const& candidates) = 0;
 
     // `setupTimer`: requests to trigger 'cb' after timeout
+    // if cb is nullptr, the timer is cancelled
     virtual void setupTimer(uint64 slotIndex, int timerID,
                             std::chrono::milliseconds timeout,
                             std::function<void()> cb) = 0;

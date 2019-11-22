@@ -5,7 +5,7 @@
  (nil . ((flycheck-clang-language-standard . "c++11")
          (flycheck-clang-include-path . ("."
                                          "src"
-                                         "lib/asio/include"
+                                         "lib/asio/asio/include"
                                          "lib/autocheck/include"
                                          "lib/cereal/include"
                                          "lib/util"
@@ -21,9 +21,4 @@
          (eval . (add-to-list 'auto-mode-alist '("\\.h\\'" . c++-mode)))
          (eval . (if (boundp 'c-offsets-alist)
                      (add-to-list 'c-offsets-alist '(innamespace . -))))
-         (eval . (setq compile-command
-                       (concat "make"
-                               " -wC "
-                               (locate-dominating-file
-                                (or buffer-file-name ".") ".dir-locals.el")
-                               " -j $(nproc)"))))))
+	 )))

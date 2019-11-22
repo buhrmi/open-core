@@ -4,19 +4,18 @@
 // under the Apache License, Version 2.0. See the COPYING file at the root
 // of this distribution or at http://www.apache.org/licenses/LICENSE-2.0
 
-#include <string>
-#include <soci.h>
-#include "overlay/StellarXDR.h"
-#include "ledger/AccountFrame.h"
-#include "ledger/OfferFrame.h"
-#include "ledger/TrustFrame.h"
+#include "database/DatabaseTypeSpecificOperation.h"
 #include "medida/timer_context.h"
+#include "overlay/StellarXDR.h"
 #include "util/NonCopyable.h"
+#include "util/Timer.h"
+#include <set>
+#include <soci.h>
+#include <string>
 
 namespace medida
 {
 class Meter;
-class Timer;
 class Counter;
 }
 
@@ -85,19 +84,48 @@ class StatementContext : NonCopyable
 class Database : NonMovableOrCopyable
 {
     Application& mApp;
+    medida::Meter& mQueryMeter;
     soci::session mSession;
     std::unique_ptr<soci::connection_pool> mPool;
 
     std::map<std::string, std::shared_ptr<soci::statement>> mStatements;
     medida::Counter& mStatementsSize;
 
+    // Helpers for maintaining the total query time and calculating
+    // idle percentage.
+    std::set<std::string> mEntityTypes;
+    std::chrono::nanoseconds mExcludedQueryTime;
+    std::chrono::nanoseconds mExcludedTotalTime;
+    std::chrono::nanoseconds mLastIdleQueryTime;
+    VirtualClock::time_point mLastIdleTotalTime;
+
     static bool gDriversRegistered;
     static void registerDrivers();
+    void applySchemaUpgrade(unsigned long vers);
 
   public:
     // Instantiate object and connect to app.getConfig().DATABASE;
     // if there is a connection error, this will throw.
     Database(Application& app);
+
+    // Return a crude meter of total queries to the db, for use in
+    // overlay/LoadManager.
+    medida::Meter& getQueryMeter();
+
+    // Number of nanoseconds spent processing queries since app startup,
+    // without any reference to excluded time or running counters.
+    // Strictly a sum of measured time.
+    std::chrono::nanoseconds totalQueryTime() const;
+
+    // Subtract a number of nanoseconds from the running time counts,
+    // due to database usage spikes, specifically during ledger-close.
+    void excludeTime(std::chrono::nanoseconds const& queryTime,
+                     std::chrono::nanoseconds const& totalTime);
+
+    // Return the percent of the time since the last call to this
+    // method that database has been idle, _excluding_ the times
+    // excluded above via `excludeTime`.
+    uint32_t recentIdleDbPercent();
 
     // Return a logging helper that will capture all SQL statements made
     // on the main connection while active, and will log those statements
@@ -106,9 +134,13 @@ class Database : NonMovableOrCopyable
 
     // Return a helper object that borrows, from the Database, a prepared
     // statement handle for the provided query. The prepared statement handle
-    // is ceated if necessary before borrowing, and reset (unbound from data)
+    // is created if necessary before borrowing, and reset (unbound from data)
     // when the statement context is destroyed.
     StatementContext getPreparedStatement(std::string const& query);
+
+    // Purge all cached prepared statements, closing their handles with the
+    // database.
+    void clearPreparedStatementCache();
 
     // Return metric-gathering timers for various families of SQL operation.
     // These timers automatically count the time they are alive for,
@@ -117,17 +149,39 @@ class Database : NonMovableOrCopyable
     medida::TimerContext getSelectTimer(std::string const& entityName);
     medida::TimerContext getDeleteTimer(std::string const& entityName);
     medida::TimerContext getUpdateTimer(std::string const& entityName);
+    medida::TimerContext getUpsertTimer(std::string const& entityName);
+
+    // If possible (i.e. "on postgres") issue an SQL pragma that marks
+    // the current transaction as read-only. The effects of this last
+    // only as long as the current SQL transaction.
+    void setCurrentTransactionReadOnly();
 
     // Return true if the Database target is SQLite, otherwise false.
     bool isSqlite() const;
+
+    // Call `op` back with the specific database backend subtype in use.
+    template <typename T>
+    T doDatabaseTypeSpecificOperation(DatabaseTypeSpecificOperation<T>& op);
 
     // Return true if a connection pool is available for worker threads
     // to read from the database through, otherwise false.
     bool canUsePool() const;
 
     // Drop and recreate all tables in the database target. This is called
-    // by the --newdb command-line flag on stellar-core.
+    // by the new-db command on stellar-core.
     void initialize();
+
+    // Save `vers` as schema version.
+    void putSchemaVersion(unsigned long vers);
+
+    // Get current schema version in DB.
+    unsigned long getDBSchemaVersion();
+
+    // Get current schema version of running application.
+    unsigned long getAppSchemaVersion();
+
+    // Check schema version and apply any upgrades if necessary.
+    void upgradeToCurrentSchema();
 
     // Access the underlying SOCI session object
     soci::session& getSession();
@@ -135,5 +189,38 @@ class Database : NonMovableOrCopyable
     // Access the optional SOCI connection pool available for worker
     // threads. Throws an error if !canUsePool().
     soci::connection_pool& getPool();
+};
+
+template <typename T>
+T
+Database::doDatabaseTypeSpecificOperation(DatabaseTypeSpecificOperation<T>& op)
+{
+    auto b = mSession.get_backend();
+    if (auto sq = dynamic_cast<soci::sqlite3_session_backend*>(b))
+    {
+        return op.doSqliteSpecificOperation(sq);
+#ifdef USE_POSTGRES
+    }
+    else if (auto pg = dynamic_cast<soci::postgresql_session_backend*>(b))
+    {
+        return op.doPostgresSpecificOperation(pg);
+#endif
+    }
+    else
+    {
+        // Extend this with other cases if we support more databases.
+        abort();
+    }
+}
+
+class DBTimeExcluder : NonCopyable
+{
+    Application& mApp;
+    std::chrono::nanoseconds mStartQueryTime;
+    VirtualClock::time_point mStartTotalTime;
+
+  public:
+    DBTimeExcluder(Application& mApp);
+    ~DBTimeExcluder();
 };
 }

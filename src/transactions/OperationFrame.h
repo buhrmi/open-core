@@ -4,11 +4,11 @@
 // under the Apache License, Version 2.0. See the COPYING file at the root
 // of this distribution or at http://www.apache.org/licenses/LICENSE-2.0
 
-#include <memory>
+#include "ledger/LedgerHashUtils.h"
 #include "ledger/LedgerManager.h"
-#include "ledger/AccountFrame.h"
 #include "overlay/StellarXDR.h"
 #include "util/types.h"
+#include <memory>
 
 namespace medida
 {
@@ -17,25 +17,39 @@ class MetricsRegistry;
 
 namespace stellar
 {
-class Application;
+class AbstractLedgerTxn;
 class LedgerManager;
-class LedgerDelta;
+class LedgerTxnEntry;
+class LedgerTxnHeader;
 
+class SignatureChecker;
 class TransactionFrame;
+
+enum class ThresholdLevel
+{
+    LOW,
+    MEDIUM,
+    HIGH
+};
 
 class OperationFrame
 {
   protected:
     Operation const& mOperation;
     TransactionFrame& mParentTx;
-    AccountFrame::pointer mSourceAccount;
     OperationResult& mResult;
 
-    bool checkSignature() const;
+    virtual bool doCheckValid(uint32_t ledgerVersion) = 0;
+    virtual bool doApply(AbstractLedgerTxn& ltx) = 0;
 
-    virtual bool doCheckValid(medida::MetricsRegistry& metrics) = 0;
-    virtual bool doApply(medida::MetricsRegistry& metrics, LedgerDelta& delta, LedgerManager& ledgerManager) = 0;
-    virtual int32_t getNeededThreshold() const;
+    // returns the threshold this operation requires
+    virtual ThresholdLevel getThresholdLevel() const;
+
+    // returns true if the operation is supported given a protocol version
+    virtual bool isVersionSupported(uint32_t protocolVersion) const;
+
+    LedgerTxnEntry loadSourceAccount(AbstractLedgerTxn& ltx,
+                                     LedgerTxnHeader const& header);
 
   public:
     static std::shared_ptr<OperationFrame>
@@ -45,27 +59,12 @@ class OperationFrame
     OperationFrame(Operation const& op, OperationResult& res,
                    TransactionFrame& parentTx);
     OperationFrame(OperationFrame const&) = delete;
+    virtual ~OperationFrame() = default;
 
-    AccountFrame&
-    getSourceAccount() const
-    {
-        assert(mSourceAccount);
-        return *mSourceAccount;
-    }
-
-    // overrides internal sourceAccount used by this operation
-    // normally set automatically by checkValid
-    void
-    setSourceAccountPtr(AccountFrame::pointer sa)
-    {
-        mSourceAccount = sa;
-    }
+    bool checkSignature(SignatureChecker& signatureChecker,
+                        AbstractLedgerTxn& ltx, bool forApply);
 
     AccountID const& getSourceID() const;
-
-    // load account if needed
-    // returns true on success
-    bool loadAccount(Application& app);
 
     OperationResult&
     getResult() const
@@ -74,14 +73,18 @@ class OperationFrame
     }
     OperationResultCode getResultCode() const;
 
-    bool checkValid(Application& app, bool forApply = false);
+    bool checkValid(SignatureChecker& signatureChecker,
+                    AbstractLedgerTxn& ltxOuter, bool forApply);
 
-    bool apply(LedgerDelta& delta, Application& app);
+    bool apply(SignatureChecker& signatureChecker, AbstractLedgerTxn& ltx);
 
     Operation const&
     getOperation() const
     {
         return mOperation;
     }
+
+    virtual void
+    insertLedgerKeysToPrefetch(std::unordered_set<LedgerKey>& keys) const;
 };
 }

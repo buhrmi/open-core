@@ -2,32 +2,47 @@
 // under the Apache License, Version 2.0. See the COPYING file at the root
 // of this distribution or at http://www.apache.org/licenses/LICENSE-2.0
 
-#include "OperationFrame.h"
-#include "main/Application.h"
-#include "xdrpp/marshal.h"
-#include <string>
-#include "util/Logging.h"
-#include "ledger/LedgerDelta.h"
-#include "transactions/TransactionFrame.h"
+#include "transactions/OperationFrame.h"
 #include "transactions/AllowTrustOpFrame.h"
-#include "transactions/CreateAccountOpFrame.h"
-#include "transactions/ManageOfferOpFrame.h"
-#include "transactions/CreatePassiveOfferOpFrame.h"
+#include "transactions/BumpSequenceOpFrame.h"
 #include "transactions/ChangeTrustOpFrame.h"
+#include "transactions/CreateAccountOpFrame.h"
+#include "transactions/CreatePassiveSellOfferOpFrame.h"
 #include "transactions/InflationOpFrame.h"
+#include "transactions/ManageBuyOfferOpFrame.h"
+#include "transactions/ManageDataOpFrame.h"
+#include "transactions/ManageSellOfferOpFrame.h"
 #include "transactions/MergeOpFrame.h"
-#include "transactions/PathPaymentOpFrame.h"
+#include "transactions/PathPaymentStrictReceiveOpFrame.h"
+#include "transactions/PathPaymentStrictSendOpFrame.h"
 #include "transactions/PaymentOpFrame.h"
 #include "transactions/SetOptionsOpFrame.h"
-#include "database/Database.h"
+#include "transactions/TransactionFrame.h"
+#include "util/Logging.h"
 
-#include "medida/meter.h"
-#include "medida/metrics_registry.h"
+#include <xdrpp/printer.h>
 
 namespace stellar
 {
 
 using namespace std;
+
+static int32_t
+getNeededThreshold(LedgerTxnEntry const& account, ThresholdLevel const level)
+{
+    auto const& acc = account.current().data.account();
+    switch (level)
+    {
+    case ThresholdLevel::LOW:
+        return acc.thresholds[THRESHOLD_LOW];
+    case ThresholdLevel::MEDIUM:
+        return acc.thresholds[THRESHOLD_MED];
+    case ThresholdLevel::HIGH:
+        return acc.thresholds[THRESHOLD_HIGH];
+    default:
+        abort();
+    }
+}
 
 shared_ptr<OperationFrame>
 OperationFrame::makeHelper(Operation const& op, OperationResult& res,
@@ -36,28 +51,33 @@ OperationFrame::makeHelper(Operation const& op, OperationResult& res,
     switch (op.body.type())
     {
     case CREATE_ACCOUNT:
-        return shared_ptr<OperationFrame>(
-            new CreateAccountOpFrame(op, res, tx));
+        return std::make_shared<CreateAccountOpFrame>(op, res, tx);
     case PAYMENT:
-        return shared_ptr<OperationFrame>(new PaymentOpFrame(op, res, tx));
-    case PATH_PAYMENT:
-        return shared_ptr<OperationFrame>(new PathPaymentOpFrame(op, res, tx));
-    case MANAGE_OFFER:
-        return shared_ptr<OperationFrame>(new ManageOfferOpFrame(op, res, tx));
-    case CREATE_PASSIVE_OFFER:
-        return shared_ptr<OperationFrame>(
-            new CreatePassiveOfferOpFrame(op, res, tx));
+        return std::make_shared<PaymentOpFrame>(op, res, tx);
+    case PATH_PAYMENT_STRICT_RECEIVE:
+        return std::make_shared<PathPaymentStrictReceiveOpFrame>(op, res, tx);
+    case MANAGE_SELL_OFFER:
+        return std::make_shared<ManageSellOfferOpFrame>(op, res, tx);
+    case CREATE_PASSIVE_SELL_OFFER:
+        return std::make_shared<CreatePassiveSellOfferOpFrame>(op, res, tx);
     case SET_OPTIONS:
-        return shared_ptr<OperationFrame>(new SetOptionsOpFrame(op, res, tx));
+        return std::make_shared<SetOptionsOpFrame>(op, res, tx);
     case CHANGE_TRUST:
-        return shared_ptr<OperationFrame>(new ChangeTrustOpFrame(op, res, tx));
+        return std::make_shared<ChangeTrustOpFrame>(op, res, tx);
     case ALLOW_TRUST:
-        return shared_ptr<OperationFrame>(new AllowTrustOpFrame(op, res, tx));
+        return std::make_shared<AllowTrustOpFrame>(op, res, tx);
     case ACCOUNT_MERGE:
-        return shared_ptr<OperationFrame>(new MergeOpFrame(op, res, tx));
+        return std::make_shared<MergeOpFrame>(op, res, tx);
     case INFLATION:
-        return shared_ptr<OperationFrame>(new InflationOpFrame(op, res, tx));
-
+        return std::make_shared<InflationOpFrame>(op, res, tx);
+    case MANAGE_DATA:
+        return std::make_shared<ManageDataOpFrame>(op, res, tx);
+    case BUMP_SEQUENCE:
+        return std::make_shared<BumpSequenceOpFrame>(op, res, tx);
+    case MANAGE_BUY_OFFER:
+        return std::make_shared<ManageBuyOfferOpFrame>(op, res, tx);
+    case PATH_PAYMENT_STRICT_SEND:
+        return std::make_shared<PathPaymentStrictSendOpFrame>(op, res, tx);
     default:
         ostringstream err;
         err << "Unknown Tx type: " << op.body.type();
@@ -72,28 +92,73 @@ OperationFrame::OperationFrame(Operation const& op, OperationResult& res,
 }
 
 bool
-OperationFrame::apply(LedgerDelta& delta, Application& app)
+OperationFrame::apply(SignatureChecker& signatureChecker,
+                      AbstractLedgerTxn& ltx)
 {
     bool res;
-    res = checkValid(app, true);
+    if (Logging::logTrace("Tx"))
+    {
+        CLOG(TRACE, "Tx") << "Operation: " << xdr::xdr_to_string(mOperation);
+    }
+    res = checkValid(signatureChecker, ltx, true);
     if (res)
     {
-        res = doApply(app.getMetrics(), delta, app.getLedgerManager());
+        res = doApply(ltx);
+        if (Logging::logTrace("Tx"))
+        {
+            CLOG(TRACE, "Tx")
+                << "Operation result: " << xdr::xdr_to_string(mResult);
+        }
     }
 
     return res;
 }
 
-int32_t
-OperationFrame::getNeededThreshold() const
+ThresholdLevel
+OperationFrame::getThresholdLevel() const
 {
-    return mSourceAccount->getMediumThreshold();
+    return ThresholdLevel::MEDIUM;
+}
+
+bool OperationFrame::isVersionSupported(uint32_t) const
+{
+    return true;
 }
 
 bool
-OperationFrame::checkSignature() const
+OperationFrame::checkSignature(SignatureChecker& signatureChecker,
+                               AbstractLedgerTxn& ltx, bool forApply)
 {
-    return mParentTx.checkSignature(*mSourceAccount, getNeededThreshold());
+    auto header = ltx.loadHeader();
+    auto sourceAccount = loadSourceAccount(ltx, header);
+    if (sourceAccount)
+    {
+        auto neededThreshold =
+            getNeededThreshold(sourceAccount, getThresholdLevel());
+        if (!mParentTx.checkSignature(signatureChecker, sourceAccount,
+                                      neededThreshold))
+        {
+            mResult.code(opBAD_AUTH);
+            return false;
+        }
+    }
+    else
+    {
+        if (forApply || !mOperation.sourceAccount)
+        {
+            mResult.code(opNO_ACCOUNT);
+            return false;
+        }
+
+        if (!mParentTx.checkSignatureNoAccount(signatureChecker,
+                                               *mOperation.sourceAccount))
+        {
+            mResult.code(opBAD_AUTH);
+            return false;
+        }
+    }
+
+    return true;
 }
 
 AccountID const&
@@ -103,65 +168,65 @@ OperationFrame::getSourceID() const
                                     : mParentTx.getEnvelope().tx.sourceAccount;
 }
 
-bool
-OperationFrame::loadAccount(Application& app)
-{
-    mSourceAccount = mParentTx.loadAccount(app, getSourceID());
-    return !!mSourceAccount;
-}
-
 OperationResultCode
 OperationFrame::getResultCode() const
 {
     return mResult.code();
 }
 
-// called when determining if we should accept this tx.
+// called when determining if we should accept this operation.
 // called when determining if we should flood
 // make sure sig is correct
-// make sure maxFee is above the current fee
-// make sure it is in the correct ledger bounds
-// don't consider minBalance since you want to allow them to still send
-// around credit etc
+// verifies that the operation is well formed (operation specific)
 bool
-OperationFrame::checkValid(Application& app, bool forApply)
+OperationFrame::checkValid(SignatureChecker& signatureChecker,
+                           AbstractLedgerTxn& ltxOuter, bool forApply)
 {
-    if (!loadAccount(app))
+    // Note: ltx is always rolled back so checkValid never modifies the ledger
+    LedgerTxn ltx(ltxOuter);
+    auto ledgerVersion = ltx.loadHeader().current().ledgerVersion;
+    if (!isVersionSupported(ledgerVersion))
     {
-        if (forApply || !mOperation.sourceAccount)
-        {
-            app.getMetrics()
-                .NewMeter({"operation", "invalid", "no-account"}, "operation")
-                .Mark();
-            mResult.code(opNO_ACCOUNT);
-            return false;
-        }
-        else
-        {
-            mSourceAccount =
-                AccountFrame::makeAuthOnlyAccount(*mOperation.sourceAccount);
-        }
-    }
-
-    if (!checkSignature())
-    {
-        app.getMetrics()
-            .NewMeter({"operation", "invalid", "bad-auth"}, "operation")
-            .Mark();
-        mResult.code(opBAD_AUTH);
+        mResult.code(opNOT_SUPPORTED);
         return false;
     }
 
-    if (!forApply)
+    if (!forApply || ledgerVersion < 10)
     {
-        // safety: operations should not rely on ledger state as
-        // previous operations may change it (can even create the account)
-        mSourceAccount.reset();
+        if (!checkSignature(signatureChecker, ltx, forApply))
+        {
+            return false;
+        }
+    }
+    else
+    {
+        // for ledger versions >= 10 we need to load account here, as for
+        // previous versions it is done in checkSignature call
+        if (!loadSourceAccount(ltx, ltx.loadHeader()))
+        {
+            mResult.code(opNO_ACCOUNT);
+            return false;
+        }
     }
 
     mResult.code(opINNER);
     mResult.tr().type(mOperation.body.type());
 
-    return doCheckValid(app.getMetrics());
+    return doCheckValid(ledgerVersion);
+}
+
+LedgerTxnEntry
+OperationFrame::loadSourceAccount(AbstractLedgerTxn& ltx,
+                                  LedgerTxnHeader const& header)
+{
+    return mParentTx.loadAccount(ltx, header, getSourceID());
+}
+
+void
+OperationFrame::insertLedgerKeysToPrefetch(
+    std::unordered_set<LedgerKey>& keys) const
+{
+    // Do nothing by default
+    return;
 }
 }

@@ -4,9 +4,8 @@
 
 #include "crypto/SHA.h"
 #include "crypto/ByteSlice.h"
-#include <sodium.h>
-#include "util/make_unique.h"
 #include "util/NonCopyable.h"
+#include <sodium.h>
 
 namespace stellar
 {
@@ -27,8 +26,10 @@ class SHA256Impl : public SHA256, NonCopyable
 {
     crypto_hash_sha256_state mState;
     bool mFinished;
-public:
+
+  public:
     SHA256Impl();
+    void reset() override;
     void add(ByteSlice const& bin) override;
     uint256 finish() override;
 };
@@ -36,16 +37,22 @@ public:
 std::unique_ptr<SHA256>
 SHA256::create()
 {
-    return make_unique<SHA256Impl>();
+    return std::make_unique<SHA256Impl>();
 }
 
-SHA256Impl::SHA256Impl()
-    : mFinished(false)
+SHA256Impl::SHA256Impl() : mFinished(false)
+{
+    reset();
+}
+
+void
+SHA256Impl::reset()
 {
     if (crypto_hash_sha256_init(&mState) != 0)
     {
         throw std::runtime_error("error from crypto_hash_sha256_init");
     }
+    mFinished = false;
 }
 
 void
@@ -74,6 +81,50 @@ SHA256Impl::finish()
     {
         throw std::runtime_error("error from crypto_hash_sha256_final");
     }
+    return out;
+}
+
+// HMAC-SHA256
+HmacSha256Mac
+hmacSha256(HmacSha256Key const& key, ByteSlice const& bin)
+{
+    HmacSha256Mac out;
+    if (crypto_auth_hmacsha256(out.mac.data(), bin.data(), bin.size(),
+                               key.key.data()) != 0)
+    {
+        throw std::runtime_error("error from crypto_auto_hmacsha256");
+    }
+    return out;
+}
+
+bool
+hmacSha256Verify(HmacSha256Mac const& hmac, HmacSha256Key const& key,
+                 ByteSlice const& bin)
+{
+    return 0 == crypto_auth_hmacsha256_verify(hmac.mac.data(), bin.data(),
+                                              bin.size(), key.key.data());
+}
+
+// Unsalted HKDF-extract(bytes) == HMAC(<zero>,bytes)
+HmacSha256Key
+hkdfExtract(ByteSlice const& bin)
+{
+    HmacSha256Key zerosalt;
+    auto mac = hmacSha256(zerosalt, bin);
+    HmacSha256Key key;
+    key.key = mac.mac;
+    return key;
+}
+
+// Single-step HKDF-expand(key,bytes) == HMAC(key,bytes|0x1)
+HmacSha256Key
+hkdfExpand(HmacSha256Key const& key, ByteSlice const& bin)
+{
+    std::vector<uint8_t> bytes(bin.begin(), bin.end());
+    bytes.push_back(1);
+    auto mac = hmacSha256(key, bytes);
+    HmacSha256Key out;
+    out.key = mac.mac;
     return out;
 }
 }

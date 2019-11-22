@@ -5,12 +5,10 @@
 // of this distribution or at http://www.apache.org/licenses/LICENSE-2.0
 
 #include "overlay/StellarXDR.h"
-#include "ledger/EntryFrame.h"
+#include "util/XDROperators.h"
 
 namespace stellar
 {
-using xdr::operator<;
-
 /**
  * Compare two LedgerEntries or LedgerKeys for 'identity', not content.
  *
@@ -29,7 +27,9 @@ using xdr::operator<;
 struct LedgerEntryIdCmp
 {
     template <typename T, typename U>
-    bool operator()(T const& a, U const& b) const
+    auto
+    operator()(T const& a, U const& b) const
+        -> decltype(a.type(), b.type(), bool())
     {
         LedgerEntryType aty = a.type();
         LedgerEntryType bty = b.type();
@@ -69,6 +69,18 @@ struct LedgerEntryIdCmp
                 return false;
             return aof.offerID < bof.offerID;
         }
+        case DATA:
+        {
+            auto const& ad = a.data();
+            auto const& bd = b.data();
+            if (ad.accountID < bd.accountID)
+                return true;
+            if (bd.accountID < ad.accountID)
+                return false;
+            {
+                return ad.dataName < bd.dataName;
+            }
+        }
         }
         return false;
     }
@@ -81,32 +93,54 @@ struct LedgerEntryIdCmp
  */
 struct BucketEntryIdCmp
 {
-    LedgerEntryIdCmp mCmp;
-    bool operator()(BucketEntry const& a, BucketEntry const& b) const
+    bool
+    operator()(BucketEntry const& a, BucketEntry const& b) const
     {
         BucketEntryType aty = a.type();
         BucketEntryType bty = b.type();
 
-        if (aty == LIVEENTRY)
+        // METAENTRY sorts below all other entries, comes first in buckets.
+        if (aty == METAENTRY || bty == METAENTRY)
         {
-            if (bty == LIVEENTRY)
+            return aty < bty;
+        }
+
+        if (aty == LIVEENTRY || aty == INITENTRY)
+        {
+            if (bty == LIVEENTRY || bty == INITENTRY)
             {
-                return mCmp(a.liveEntry(), b.liveEntry());
+                return LedgerEntryIdCmp{}(a.liveEntry().data,
+                                          b.liveEntry().data);
             }
             else
             {
-                return mCmp(a.liveEntry(), b.deadEntry());
+                if (bty != DEADENTRY)
+                {
+                    throw std::runtime_error("Malformed bucket: unexpected "
+                                             "non-INIT/LIVE/DEAD entry.");
+                }
+                return LedgerEntryIdCmp{}(a.liveEntry().data, b.deadEntry());
             }
         }
         else
         {
-            if (bty == LIVEENTRY)
+            if (aty != DEADENTRY)
             {
-                return mCmp(a.deadEntry(), b.liveEntry());
+                throw std::runtime_error(
+                    "Malformed bucket: unexpected non-INIT/LIVE/DEAD entry.");
+            }
+            if (bty == LIVEENTRY || bty == INITENTRY)
+            {
+                return LedgerEntryIdCmp{}(a.deadEntry(), b.liveEntry().data);
             }
             else
             {
-                return mCmp(a.deadEntry(), b.deadEntry());
+                if (bty != DEADENTRY)
+                {
+                    throw std::runtime_error("Malformed bucket: unexpected "
+                                             "non-INIT/LIVE/DEAD entry.");
+                }
+                return LedgerEntryIdCmp{}(a.deadEntry(), b.deadEntry());
             }
         }
     }

@@ -1,28 +1,75 @@
-# Overview
+---
+title: Versioning
+---
 
 This document describes the various mechanisms used to keep the overall system working as it evolves.
 
-# Ledger versioning
-## ledgerVersion
+## Ledger versioning
+### ledgerVersion
 This uint32 stored in the ledger header describes the version number of the overall protocol.
 Protocol in this case is defined both as "wire format" (ie, the serialized forms of all objects stored in the ledger) and its behavior.
 
 This version number is incremented every time the protocol changes.
 
 ### Integration with consensus
-Most of the time consensus is simply reached on which transaction set needs to be applied to the previous ledger.
+Most of the time consensus is simply reached on which transaction set needs to
+be applied to the previous ledger.
 
 However consensus can in addition be reached on upgrade steps.
 
-One such upgrade step is something like "update ledgerVersion to value X after ledger N".
+One such upgrade step is something like "update ledgerVersion to value X after
+current ledger".
 
-If nodes do not consider that the upgrade set is valid they simply drop the upgrade step from their vote.
-A node considers a step invalid either because they do not understand it or some condition is not met (in the previous example it could be that X is not supported by the node or that the ledger number didn't reach N yet).
+If nodes do not consider that the upgrade set is valid they simply drop the
+upgrade step from their vote during nomination.
+If a quorum voted for an invalid value, the validator will ignore
+the SCP messages for the current ledger (ie: abstain).
 
-Upgrade steps are applied before applying the transaction set, this ensures that the logic scheduling steps is the same processing it (otherwise, the steps would have to be applied after the ledger is closed).
+A node considers a step invalid either because:
+* they do not understand it, for example a new upgrade type not implemented
+* its value differs for this node's scheduled upgrade setting
+* network time is before the scheduled upgrade datetime
+
+Upgrades are applied after applying the transaction set. It is done this way
+because the transaction set is validated against the last closed ledger,
+independently of any upgrades. For example, this allows to update `baseFee`
+without risking invalidating transactions for the current ledger.
+
+Supported upgrades are encoded using LedgerUpgradeType.
+
+Upgrades are specified with:
+* upgradetime - the minimum time for node to accept and
+  nominate upgrades
+* basefee - upgrades value of baseFee in ledger header, uses upgrade
+  type LEDGER_UPGRADE_BASE_FEE
+* maxtxsize - upgrades value of maxTxSetSize in ledger header,
+  uses upgrade type LEDGER_UPGRADE_MAX_TX_SET_SIZE
+* basereserve - upgrades value of baseReserve in ledger header, uses
+  upgrade type LEDGER_UPGRADE_BASE_RESERVE
+* protocolversion - upgrades value of ledgerVersion in ledger header, uses
+  upgrade type LEDGER_UPGRADE_VERSION (when specified it has to match the
+  supported version number)
+
+#### Limitations of the current implementation
+There is an assumption that validator operators are either paying attention to network wide proposals
+or do not really care about the network settings per se.
+For that reason, upgrades are only validated during SCP rounds - ie, they are not validated when catching up from history.
+
+As a consequence, there is currently no way for a node to not eventually rejoin the network if it doesn't agree
+with the upgrade.
+
+A validator in this situation will disagree with the SCP round with the upgrade (and won't even see the network closing
+as invalid values are invisible to the validator),
+but it will rejoin the network after a few minutes by downloading historical data from other nodes.
+The validator will still try to revert the changes by voting for the values it has in its configuration.
+
+Note that this is still a best effort:
+the node may stay out of sync or crash if it cannot replay history properly (in the case of new features for example).
 
 ### Supported versions
-Each node has its own way of tracking which version it supports, for example a "min version", "max version"; but it can also include things like "black listed versions". This is not tracked from within the protocol.
+Each node has its own way of tracking which version it supports,
+for example a "min version", "max version"; but it can also include things
+like "black listed versions". This is not tracked from within the protocol.
 
 Note that minProtocolVersion is distinct from the version an instance understands:
 typically an implementation understands versions n .. maxProtocolVersion, where n <= minProtocolVersion.

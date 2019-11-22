@@ -3,30 +3,33 @@
 // of this distribution or at http://www.apache.org/licenses/LICENSE-2.0
 
 #include "overlay/Floodgate.h"
+#include "crypto/Hex.h"
 #include "crypto/SHA.h"
-#include "main/Application.h"
-#include "overlay/OverlayManager.h"
 #include "herder/Herder.h"
-
+#include "main/Application.h"
 #include "medida/counter.h"
 #include "medida/metrics_registry.h"
+#include "overlay/OverlayManager.h"
+#include "util/Logging.h"
+#include "util/XDROperators.h"
 #include "xdrpp/marshal.h"
 
 namespace stellar
 {
-
 Floodgate::FloodRecord::FloodRecord(StellarMessage const& msg, uint32_t ledger,
                                     Peer::pointer peer)
     : mLedgerSeq(ledger), mMessage(msg)
 {
     if (peer)
-        mPeersTold.push_back(peer);
+        mPeersTold.insert(peer->toString());
 }
 
 Floodgate::Floodgate(Application& app)
     : mApp(app)
     , mFloodMapSize(
-          app.getMetrics().NewCounter({"overlay", "memory", "flood-map"}))
+          app.getMetrics().NewCounter({"overlay", "memory", "flood-known"}))
+    , mSendFromBroadcast(app.getMetrics().NewMeter(
+          {"overlay", "flood", "broadcast"}, "message"))
     , mShuttingDown(false)
 {
 }
@@ -40,7 +43,7 @@ Floodgate::clearBelow(uint32_t currentLedger)
         // give one ledger of leeway
         if (it->second->mLedgerSeq + 10 < currentLedger)
         {
-            mFloodMap.erase(it++);
+            it = mFloodMap.erase(it);
         }
         else
         {
@@ -68,7 +71,7 @@ Floodgate::addRecord(StellarMessage const& msg, Peer::pointer peer)
     }
     else
     {
-        result->second->mPeersTold.push_back(peer);
+        result->second->mPeersTold.insert(peer->toString());
         return false;
     }
 }
@@ -82,40 +85,54 @@ Floodgate::broadcast(StellarMessage const& msg, bool force)
         return;
     }
     Hash index = sha256(xdr::xdr_to_opaque(msg));
+    CLOG(TRACE, "Overlay") << "broadcast " << hexAbbrev(index);
+
     auto result = mFloodMap.find(index);
     if (result == mFloodMap.end() || force)
     { // no one has sent us this message
         FloodRecord::pointer record = std::make_shared<FloodRecord>(
             msg, mApp.getHerder().getCurrentLedgerSeq(), Peer::pointer());
-        record->mPeersTold = mApp.getOverlayManager().getPeers();
-
-        mFloodMap[index] = record;
+        result = mFloodMap.insert(std::make_pair(index, record)).first;
         mFloodMapSize.set_count(mFloodMap.size());
-        for (auto peer : mApp.getOverlayManager().getPeers())
+    }
+    // send it to people that haven't sent it to us
+    auto& peersTold = result->second->mPeersTold;
+
+    // make a copy, in case peers gets modified
+    auto peers = mApp.getOverlayManager().getAuthenticatedPeers();
+
+    for (auto peer : peers)
+    {
+        assert(peer.second->isAuthenticated());
+        if (peersTold.find(peer.second->toString()) == peersTold.end())
         {
-            if (peer->getState() == Peer::GOT_HELLO)
+            mSendFromBroadcast.Mark();
+            peer.second->sendMessage(msg);
+            peersTold.insert(peer.second->toString());
+        }
+    }
+    CLOG(TRACE, "Overlay") << "broadcast " << hexAbbrev(index) << " told "
+                           << peersTold.size();
+}
+
+std::set<Peer::pointer>
+Floodgate::getPeersKnows(Hash const& h)
+{
+    std::set<Peer::pointer> res;
+    auto record = mFloodMap.find(h);
+    if (record != mFloodMap.end())
+    {
+        auto& ids = record->second->mPeersTold;
+        auto const& peers = mApp.getOverlayManager().getAuthenticatedPeers();
+        for (auto& p : peers)
+        {
+            if (ids.find(p.second->toString()) != ids.end())
             {
-                peer->sendMessage(msg);
-                record->mPeersTold.push_back(peer);
+                res.insert(p.second);
             }
         }
     }
-    else
-    { // send it to people that haven't sent it to us
-        std::vector<Peer::pointer>& peersTold = result->second->mPeersTold;
-        for (auto peer : mApp.getOverlayManager().getPeers())
-        {
-            if (find(peersTold.begin(), peersTold.end(), peer) ==
-                peersTold.end())
-            {
-                if (peer->getState() == Peer::GOT_HELLO)
-                {
-                    peer->sendMessage(msg);
-                    peersTold.push_back(peer);
-                }
-            }
-        }
-    }
+    return res;
 }
 
 void

@@ -4,10 +4,13 @@
 // under the Apache License, Version 2.0. See the COPYING file at the root
 // of this distribution or at http://www.apache.org/licenses/LICENSE-2.0
 
-#include "main/Application.h"
 #include "crypto/SecretKey.h"
-#include "transactions/TxTests.h"
+#include "herder/Herder.h"
+#include "main/Application.h"
+#include "test/TestAccount.h"
+#include "test/TxTests.h"
 #include "xdr/Stellar-types.h"
+#include <util/format.h>
 #include <vector>
 
 namespace medida
@@ -26,129 +29,29 @@ class VirtualTimer;
 class LoadGenerator
 {
   public:
-    LoadGenerator();
-    ~LoadGenerator();
-    void clear();
-
-    struct TxInfo;
-    struct AccountInfo;
-    using AccountInfoPtr = std::shared_ptr<AccountInfo>;
-
-    static std::string pickRandomAsset();
-    static const uint32_t STEP_MSECS;
-
-    // Primary store of accounts.
-    std::vector<AccountInfoPtr> mAccounts;
-
-    // Subset of accounts that have issued credit in some asset.
-    std::vector<AccountInfoPtr> mGateways;
-
-    // Subset of accounts that have made offers to trade in some credits.
-    std::vector<AccountInfoPtr> mMarketMakers;
-
-    std::unique_ptr<VirtualTimer> mLoadTimer;
-    int64 mMinBalance;
-    uint64_t mLastSecond;
-
-    // Schedule a callback to generateLoad() STEP_MSECS miliseconds from now.
-    void scheduleLoadGeneration(Application& app, uint32_t nAccounts,
-                                uint32_t nTxs, uint32_t txRate,
-                                bool autoRate);
+    using TestAccountPtr = std::shared_ptr<TestAccount>;
+    LoadGenerator(Application& app);
 
     // Generate one "step" worth of load (assuming 1 step per STEP_MSECS) at a
     // given target number of accounts and txs, and a given target tx/s rate.
     // If work remains after the current step, call scheduleLoadGeneration()
     // with the remainder.
-    void generateLoad(Application& app, uint32_t nAccounts, uint32_t nTxs,
-                      uint32_t txRate, bool autoRate);
+    void generateLoad(bool isCreate, uint32_t nAccounts, uint32_t offset,
+                      uint32_t nTxs, uint32_t txRate, uint32_t batchSize);
 
-    bool maybeCreateAccount(uint32_t ledgerNum, std::vector<TxInfo>& txs);
+    // Verify cached accounts are properly reflected in the database
+    // return any accounts that are inconsistent.
+    std::vector<TestAccountPtr> checkAccountSynced(Application& app,
+                                                   bool isCreate);
 
-    std::vector<TxInfo> accountCreationTransactions(size_t n);
-    AccountInfoPtr createAccount(size_t i, uint32_t ledgerNum = 0);
-    std::vector<AccountInfoPtr> createAccounts(size_t n);
-    bool loadAccount(Application& app, AccountInfo& account);
-    bool loadAccount(Application& app, AccountInfoPtr account);
-    bool loadAccounts(Application& app, std::vector<AccountInfoPtr> accounts);
-
-    TxInfo createTransferNativeTransaction(AccountInfoPtr from,
-                                           AccountInfoPtr to, int64_t amount);
-
-    TxInfo
-    createTransferCreditTransaction(AccountInfoPtr from, AccountInfoPtr to,
-                                    int64_t amount,
-                                    std::vector<AccountInfoPtr> const& path);
-
-    TxInfo createEstablishTrustTransaction(AccountInfoPtr from,
-                                           AccountInfoPtr issuer);
-
-    TxInfo createEstablishOfferTransaction(AccountInfoPtr from);
-
-    AccountInfoPtr pickRandomAccount(AccountInfoPtr tryToAvoid,
-                                     uint32_t ledgerNum);
-
-    AccountInfoPtr pickRandomPath(AccountInfoPtr from, uint32_t ledgerNum,
-                                  std::vector<AccountInfoPtr>& path);
-
-    TxInfo createRandomTransaction(float alpha, uint32_t ledgerNum = 0);
-    std::vector<TxInfo> createRandomTransactions(size_t n, float paretoAlpha);
-    void updateMinBalance(Application& app);
-
-    struct TrustLineInfo
-    {
-        AccountInfoPtr mIssuer;
-        int64_t mBalance;
-        int64_t mLimit;
-    };
-
-    struct AccountInfo : public std::enable_shared_from_this<AccountInfo>
-    {
-        AccountInfo(size_t id, SecretKey key, int64_t balance,
-                    SequenceNumber seq, LoadGenerator& loadGen);
-        size_t mId;
-        SecretKey mKey;
-        int64_t mBalance;
-        SequenceNumber mSeq;
-
-        void establishTrust(AccountInfoPtr a);
-
-        // Used when this account trusts some other account's credits.
-        std::vector<TrustLineInfo> mTrustLines;
-
-        // Asset issued, if a gateway, as well as reverse maps to
-        // those accounts that trust this asset and those who are
-        // buying and selling it.
-        std::string mIssuedAsset;
-        std::vector<AccountInfoPtr> mTrustingAccounts;
-        std::vector<AccountInfoPtr> mBuyingAccounts;
-        std::vector<AccountInfoPtr> mSellingAccounts;
-
-        // Live offers, for accounts that are market makers.
-        AccountInfoPtr mBuyCredit;
-        AccountInfoPtr mSellCredit;
-
-        TxInfo creationTransaction();
-
-      private:
-        LoadGenerator& mLoadGen;
-    };
-
+  private:
     struct TxMetrics
     {
         medida::Meter& mAccountCreated;
-        medida::Meter& mTrustlineCreated;
-        medida::Meter& mOfferCreated;
-        medida::Meter& mPayment;
         medida::Meter& mNativePayment;
-        medida::Meter& mCreditPayment;
-        medida::Meter& mOneOfferPathPayment;
-        medida::Meter& mTwoOfferPathPayment;
-        medida::Meter& mManyOfferPathPayment;
         medida::Meter& mTxnAttempted;
         medida::Meter& mTxnRejected;
-
-        medida::Counter& mGateways;
-        medida::Counter& mMarketMakers;
+        medida::Meter& mTxnBytes;
 
         TxMetrics(medida::MetricsRegistry& m);
         void report();
@@ -156,22 +59,83 @@ class LoadGenerator
 
     struct TxInfo
     {
-        AccountInfoPtr mFrom;
-        AccountInfoPtr mTo;
-        enum
-        {
-            TX_CREATE_ACCOUNT,
-            TX_TRANSFER_NATIVE,
-            TX_TRANSFER_CREDIT
-        } mType;
-        int64_t mAmount;
-        std::vector<AccountInfoPtr> mPath;
-
-        bool execute(Application& app);
-
-        void toTransactionFrames(std::vector<TransactionFramePtr>& txs,
-                                 TxMetrics& metrics);
-        void recordExecution(int64_t baseFee);
+        TestAccountPtr mFrom;
+        std::vector<Operation> mOps;
+        // There are a few scenarios where tx submission might fail:
+        // * ADD_STATUS_DUPLICATE, should be just a no-op and not count toward
+        // total tx goal.
+        // * ADD_STATUS_TRY_AGAIN_LATER, transaction is banned/dropped. This
+        // indicates that the system is getting overloaded, so loadgen fails.
+        // * ADD_STATUS_ERROR, transaction didn't pass validation checks. If
+        // failure is due to txBAD_SEQ, synchronize accounts with the DB and
+        // re-submit. Any other code points to a loadgen misconfigurations, as
+        // transactions must have valid (pre-generated) source accounts,
+        // sufficient balances etc.
+        TransactionQueue::AddResult execute(Application& app, bool isCreate,
+                                            TransactionResultCode& code,
+                                            int32_t batchSize);
     };
+
+    static const uint32_t STEP_MSECS;
+    static const uint32_t TX_SUBMIT_MAX_TRIES;
+    static const uint32_t TIMEOUT_NUM_LEDGERS;
+
+    std::unique_ptr<VirtualTimer> mLoadTimer;
+    int64 mMinBalance;
+    uint64_t mLastSecond;
+    Application& mApp;
+    int64_t mTotalSubmitted;
+    // Set when load generation actually begins
+    std::unique_ptr<VirtualClock::time_point> mStartTime;
+
+    TestAccountPtr mRoot;
+    // Accounts cache
+    std::map<uint64_t, TestAccountPtr> mAccounts;
+
+    medida::Meter& mLoadgenComplete;
+    medida::Meter& mLoadgenFail;
+
+    bool mFailed{false};
+    int mWaitTillCompleteForLedgers{0};
+
+    void reset();
+    void createRootAccount();
+    int64_t getTxPerStep(uint32_t txRate);
+
+    // Schedule a callback to generateLoad() STEP_MSECS miliseconds from now.
+    void scheduleLoadGeneration(bool isCreate, uint32_t nAccounts,
+                                uint32_t offset, uint32_t nTxs, uint32_t txRate,
+                                uint32_t batchSize);
+
+    std::vector<Operation> createAccounts(uint64_t i, uint64_t batchSize,
+                                          uint32_t ledgerNum);
+    bool loadAccount(TestAccount& account, Application& app);
+    bool loadAccount(TestAccountPtr account, Application& app);
+
+    std::pair<TestAccountPtr, TestAccountPtr>
+    pickAccountPair(uint32_t numAccounts, uint32_t offset, uint32_t ledgerNum,
+                    uint64_t sourceAccountId);
+    TestAccountPtr findAccount(uint64_t accountId, uint32_t ledgerNum);
+    LoadGenerator::TxInfo paymentTransaction(uint32_t numAccounts,
+                                             uint32_t offset,
+                                             uint32_t ledgerNum,
+                                             uint64_t sourceAccount);
+    void maybeHandleFailedTx(TestAccountPtr sourceAccount,
+                             TransactionQueue::AddResult status,
+                             TransactionResultCode code);
+    TxInfo creationTransaction(uint64_t startAccount, uint64_t numItems,
+                               uint32_t ledgerNum);
+    void logProgress(std::chrono::nanoseconds submitTimer, bool isCreate,
+                     uint32_t nAccounts, uint32_t nTxs, uint32_t batchSize,
+                     uint32_t txRate);
+
+    uint32_t submitCreationTx(uint32_t nAccounts, uint32_t offset,
+                              uint32_t batchSize, uint32_t ledgerNum);
+    uint32_t submitPaymentTx(uint32_t nAccounts, uint32_t offset,
+                             uint32_t batchSize, uint32_t ledgerNum,
+                             uint32_t nTxs);
+    void waitTillComplete(bool isCreate);
+
+    void updateMinBalance();
 };
 }

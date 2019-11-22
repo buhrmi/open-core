@@ -4,48 +4,50 @@
 // under the Apache License, Version 2.0. See the COPYING file at the root
 // of this distribution or at http://www.apache.org/licenses/LICENSE-2.0
 
+#include "crypto/KeyUtils.h"
+#include "util/XDROperators.h"
 #include "xdr/Stellar-types.h"
+
+#include <array>
+#include <functional>
 #include <ostream>
 
 namespace stellar
 {
 
-using xdr::operator==;
-
 class ByteSlice;
+struct SecretValue;
+struct SignerKey;
 
 class SecretKey
 {
     using uint512 = xdr::opaque_array<64>;
-    CryptoKeyType mKeyType;
+    PublicKeyType mKeyType;
     uint512 mSecretKey;
-
-  public:
-    SecretKey();
+    PublicKey mPublicKey;
 
     struct Seed
     {
-        CryptoKeyType mKeyType;
+        PublicKeyType mKeyType;
         uint256 mSeed;
+        ~Seed();
     };
-
-    // Get the public key portion of this secret key.
-    PublicKey getPublicKey() const;
 
     // Get the seed portion of this secret key.
     Seed getSeed() const;
 
-    // Get the seed portion of this secret key as as Base58Check string.
-    std::string getStrKeySeed() const;
+  public:
+    SecretKey();
+    ~SecretKey();
 
-    // Get the public key portion of this secret key as as Base58Check string.
+    // Get the public key portion of this secret key.
+    PublicKey const& getPublicKey() const;
+
+    // Get the seed portion of this secret key as a StrKey string.
+    SecretValue getStrKeySeed() const;
+
+    // Get the public key portion of this secret key as a StrKey string.
     std::string getStrKeyPublic() const;
-
-    // Get the seed portion of this secret key as as Base58Check string.
-    std::string getBase58Seed() const;
-
-    // Get the public key portion of this secret key as as Base58Check string.
-    std::string getBase58Public() const;
 
     // Return true iff this key is all-zero.
     bool isZero() const;
@@ -56,19 +58,53 @@ class SecretKey
     // Create a new, random secret key.
     static SecretKey random();
 
+#ifdef BUILD_TESTS
+    // Create a new, pseudo-random secret key drawn from the global weak
+    // non-cryptographic PRNG (which itself is seeded from command-line or
+    // deterministically). Do not under any circumstances use this for non-test
+    // key generation.
+    static SecretKey pseudoRandomForTesting();
+
+    // Same as above, but use a function-local PRNG seeded from the
+    // provided number. Again: do not under any circumstances use this
+    // for non-test key generation
+    static SecretKey pseudoRandomForTestingFromSeed(unsigned int seed);
+#endif
+
     // Decode a secret key from a provided StrKey seed value.
     static SecretKey fromStrKeySeed(std::string const& strKeySeed);
-
-    // Decode a secret key from a provided Base58Check seed value.
-    static SecretKey fromBase58Seed(std::string const& base58Seed);
+    static SecretKey
+    fromStrKeySeed(std::string&& strKeySeed)
+    {
+        SecretKey ret = fromStrKeySeed(strKeySeed);
+        for (std::size_t i = 0; i < strKeySeed.size(); ++i)
+            strKeySeed[i] = 0;
+        return ret;
+    }
 
     // Decode a secret key from a binary seed value.
     static SecretKey fromSeed(ByteSlice const& seed);
 
-    bool operator==(SecretKey const& rh)
+    bool
+    operator==(SecretKey const& rh) const
     {
         return (mKeyType == rh.mKeyType) && (mSecretKey == rh.mSecretKey);
     }
+};
+
+template <> struct KeyFunctions<PublicKey>
+{
+    struct getKeyTypeEnum
+    {
+        using type = PublicKeyType;
+    };
+
+    static std::string getKeyTypeName();
+    static bool getKeyVersionIsSupported(strKey::StrKeyVersionByte keyVersion);
+    static PublicKeyType toKeyType(strKey::StrKeyVersionByte keyVersion);
+    static strKey::StrKeyVersionByte toKeyVersion(PublicKeyType keyType);
+    static uint256& getKeyValue(PublicKey& key);
+    static uint256 const& getKeyValue(PublicKey const& key);
 };
 
 // public key utility functions
@@ -78,20 +114,10 @@ namespace PubKeyUtils
 bool verifySig(PublicKey const& key, Signature const& signature,
                ByteSlice const& bin);
 
-std::string toShortString(PublicKey const& pk);
+void clearVerifySigCache();
+void flushVerifySigCacheCounts(uint64_t& hits, uint64_t& misses);
 
-std::string toStrKey(PublicKey const& pk);
-
-PublicKey fromStrKey(std::string const& s);
-
-std::string toBase58(PublicKey const& pk);
-
-PublicKey fromBase58(std::string const& s);
-
-// returns hint from key
-SignatureHint getHint(PublicKey const& pk);
-// returns true if the hint matches the key
-bool hasHint(PublicKey const& pk, SignatureHint const& hint);
+PublicKey random();
 }
 
 namespace StrKeyUtils
@@ -105,4 +131,12 @@ namespace HashUtils
 {
 Hash random();
 }
+}
+
+namespace std
+{
+template <> struct hash<stellar::PublicKey>
+{
+    size_t operator()(stellar::PublicKey const& x) const noexcept;
+};
 }

@@ -4,8 +4,8 @@
 // under the Apache License, Version 2.0. See the COPYING file at the root
 // of this distribution or at http://www.apache.org/licenses/LICENSE-2.0
 
-#include "overlay/StellarXDR.h"
 #include "overlay/Peer.h"
+#include "overlay/StellarXDR.h"
 #include <map>
 
 /**
@@ -38,7 +38,7 @@ class Floodgate
 
         uint32_t mLedgerSeq;
         StellarMessage mMessage;
-        std::vector<Peer::pointer> mPeersTold;
+        std::set<std::string> mPeersTold;
 
         FloodRecord(StellarMessage const& msg, uint32_t ledger,
                     Peer::pointer peer);
@@ -47,6 +47,7 @@ class Floodgate
     std::map<uint256, FloodRecord::pointer> mFloodMap;
     Application& mApp;
     medida::Counter& mFloodMapSize;
+    medida::Meter& mSendFromBroadcast;
     bool mShuttingDown;
 
   public:
@@ -57,6 +58,9 @@ class Floodgate
     bool addRecord(StellarMessage const& msg, Peer::pointer fromPeer);
 
     void broadcast(StellarMessage const& msg, bool force);
+
+    // returns the list of peers that sent us the item with hash `h`
+    std::set<Peer::pointer> getPeersKnows(Hash const& h);
 
     void shutdown();
 };

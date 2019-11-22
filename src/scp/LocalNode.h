@@ -5,8 +5,8 @@
 // of this distribution or at http://www.apache.org/licenses/LICENSE-2.0
 
 #include <memory>
-#include <vector>
 #include <set>
+#include <vector>
 
 #include "scp/SCP.h"
 #include "util/HashOfHash.h"
@@ -20,7 +20,7 @@ class LocalNode
 {
   protected:
     const NodeID mNodeID;
-    const SecretKey mSecretKey;
+    const bool mIsValidator;
     SCPQuorumSet mQSet;
     Hash mQSetHash;
 
@@ -31,7 +31,8 @@ class LocalNode
     SCP* mSCP;
 
   public:
-    LocalNode(SecretKey const& secretKey, SCPQuorumSet const& qSet, SCP* scp);
+    LocalNode(NodeID const& nodeID, bool isValidator, SCPQuorumSet const& qSet,
+              SCP* scp);
 
     NodeID const& getNodeID();
 
@@ -39,7 +40,7 @@ class LocalNode
 
     SCPQuorumSet const& getQuorumSet();
     Hash const& getQuorumSetHash();
-    SecretKey const& getSecretKey();
+    bool isValidator();
 
     // returns the quorum set {{X}}
     static SCPQuorumSetPtr getSingletonQSet(NodeID const& nodeID);
@@ -52,27 +53,21 @@ class LocalNode
     // normalized between 0-UINT64_MAX
     static uint64 getNodeWeight(NodeID const& nodeID, SCPQuorumSet const& qset);
 
-    // Tests this node against nodeSet for the specified qSethash. Triggers the
-    // retrieval of qSetHash for this node and may throw a QuorumSlicesNotFound
-    // exception
+    // Tests this node against nodeSet for the specified qSethash.
     static bool isQuorumSlice(SCPQuorumSet const& qSet,
                               std::vector<NodeID> const& nodeSet);
     static bool isVBlocking(SCPQuorumSet const& qSet,
                             std::vector<NodeID> const& nodeSet);
 
     // Tests this node against a map of nodeID -> T for the specified qSetHash.
-    // Triggers the retrieval of qSetHash for this node and may throw a
-    // QuorumSlicesNotFound exception.
 
     // `isVBlocking` tests if the filtered nodes V are a v-blocking set for
     // this node.
-    static bool isVBlocking(SCPQuorumSet const& qSet,
-                            std::map<NodeID, SCPStatement> const& map,
-                            std::function<bool(SCPStatement const&)> const&
-                                filter = [](SCPStatement const&)
-                            {
-                                return true;
-                            });
+    static bool
+    isVBlocking(SCPQuorumSet const& qSet,
+                std::map<NodeID, SCPEnvelope> const& map,
+                std::function<bool(SCPStatement const&)> const& filter =
+                    [](SCPStatement const&) { return true; });
 
     // `isQuorum` tests if the filtered nodes V form a quorum
     // (meaning for each v \in V there is q \in Q(v)
@@ -80,14 +75,31 @@ class LocalNode
     // SCPQuorumSetPtr from the SCPStatement for its associated node in map
     // (required for transitivity)
     static bool
-    isQuorum(SCPQuorumSet const& qSet,
-             std::map<NodeID, SCPStatement> const& map,
+    isQuorum(SCPQuorumSet const& qSet, std::map<NodeID, SCPEnvelope> const& map,
              std::function<SCPQuorumSetPtr(SCPStatement const&)> const& qfun,
              std::function<bool(SCPStatement const&)> const& filter =
-                 [](SCPStatement const&)
-             {
-                 return true;
-             });
+                 [](SCPStatement const&) { return true; });
+
+    // computes the distance to the set of v-blocking sets given
+    // a set of nodes that agree (but can fail)
+    // excluded, if set will be skipped altogether
+    static std::vector<NodeID>
+    findClosestVBlocking(SCPQuorumSet const& qset,
+                         std::set<NodeID> const& nodes, NodeID const* excluded);
+
+    static std::vector<NodeID> findClosestVBlocking(
+        SCPQuorumSet const& qset, std::map<NodeID, SCPEnvelope> const& map,
+        std::function<bool(SCPStatement const&)> const& filter =
+            [](SCPStatement const&) { return true; },
+        NodeID const* excluded = nullptr);
+
+    static Json::Value toJson(SCPQuorumSet const& qSet,
+                              std::function<std::string(PublicKey const&)> r);
+
+    Json::Value toJson(SCPQuorumSet const& qSet, bool fullKeys) const;
+    std::string to_string(SCPQuorumSet const& qSet) const;
+
+    static uint64 computeWeight(uint64 m, uint64 total, uint64 threshold);
 
   protected:
     // returns a quorum set {{ nodeID }}
@@ -98,7 +110,5 @@ class LocalNode
                                       std::vector<NodeID> const& nodeSet);
     static bool isVBlockingInternal(SCPQuorumSet const& qset,
                                     std::vector<NodeID> const& nodeSet);
-    static void forAllNodesInternal(SCPQuorumSet const& qset,
-                                    std::function<void(NodeID const&)> proc);
 };
 }

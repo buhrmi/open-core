@@ -10,7 +10,7 @@ namespace stellar
 {
 class AllowTrustOpFrame : public OperationFrame
 {
-    int32_t getNeededThreshold() const override;
+    ThresholdLevel getThresholdLevel() const override;
     AllowTrustResult&
     innerResult() const
     {
@@ -23,9 +23,8 @@ class AllowTrustOpFrame : public OperationFrame
     AllowTrustOpFrame(Operation const& op, OperationResult& res,
                       TransactionFrame& parentTx);
 
-    bool doApply(medida::MetricsRegistry& metrics, LedgerDelta& delta,
-                 LedgerManager& ledgerManager) override;
-    bool doCheckValid(medida::MetricsRegistry& metrics) override;
+    bool doApply(AbstractLedgerTxn& ls) override;
+    bool doCheckValid(uint32_t ledgerVersion) override;
 
     static AllowTrustResultCode
     getInnerCode(OperationResult const& res)

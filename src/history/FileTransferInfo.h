@@ -18,65 +18,43 @@ extern char const* HISTORY_FILE_TYPE_BUCKET;
 extern char const* HISTORY_FILE_TYPE_LEDGER;
 extern char const* HISTORY_FILE_TYPE_TRANSACTIONS;
 extern char const* HISTORY_FILE_TYPE_RESULTS;
+extern char const* HISTORY_FILE_TYPE_SCP;
 
-template <typename T> class FileTransferInfo
+class FileTransferInfo
 {
-    T mTransferState;
     std::string mType;
     std::string mHexDigits;
     std::string mLocalPath;
-    std::string mSuffix;
+    std::string getLocalDir(TmpDir const& localRoot) const;
 
   public:
-    FileTransferInfo(T state, Bucket const& bucket)
-        : mTransferState(state)
-        , mType(HISTORY_FILE_TYPE_BUCKET)
+    FileTransferInfo(Bucket const& bucket)
+        : mType(HISTORY_FILE_TYPE_BUCKET)
         , mHexDigits(binToHex(bucket.getHash()))
         , mLocalPath(bucket.getFilename())
     {
     }
 
-    FileTransferInfo(T state, TmpDir const& snapDir,
-                     std::string const& snapType, uint32_t checkpointLedger)
-        : mTransferState(state)
-        , mType(snapType)
+    FileTransferInfo(TmpDir const& snapDir, std::string const& snapType,
+                     uint32_t checkpointLedger)
+        : mType(snapType)
         , mHexDigits(fs::hexStr(checkpointLedger))
-        , mLocalPath(snapDir.getName() + "/" + baseName_nogz())
+        , mLocalPath(getLocalDir(snapDir) + "/" + baseName_nogz())
     {
     }
 
-    FileTransferInfo(T state, TmpDir const& snapDir,
-                     std::string const& snapType, std::string const& hexDigits)
-        : mTransferState(state)
-        , mType(snapType)
+    FileTransferInfo(TmpDir const& snapDir, std::string const& snapType,
+                     std::string const& hexDigits)
+        : mType(snapType)
         , mHexDigits(hexDigits)
-        , mLocalPath(snapDir.getName() + "/" + baseName_nogz())
+        , mLocalPath(getLocalDir(snapDir) + "/" + baseName_nogz())
     {
     }
 
-    bool
-    getBucketHashName(std::string& hash) const
+    std::string
+    getType() const
     {
-        if (mHexDigits.size() == 64 && mType == HISTORY_FILE_TYPE_BUCKET)
-        {
-            hash = mHexDigits;
-            return true;
-        }
-        return false;
-    }
-
-    T
-    getState() const
-    {
-        return mTransferState;
-    }
-
-    void
-    setState(T state)
-    {
-        CLOG(DEBUG, "History") << "Setting " << baseName_nogz() << " to state "
-                               << state;
-        mTransferState = state;
+        return mType;
     }
 
     std::string
@@ -89,6 +67,11 @@ template <typename T> class FileTransferInfo
     {
         return mLocalPath + ".gz";
     }
+    std::string
+    localPath_gz_tmp() const
+    {
+        return mLocalPath + ".gz.tmp";
+    }
 
     std::string
     baseName_nogz() const
@@ -99,6 +82,11 @@ template <typename T> class FileTransferInfo
     baseName_gz() const
     {
         return baseName_nogz() + ".gz";
+    }
+    std::string
+    baseName_gz_tmp() const
+    {
+        return baseName_nogz() + ".gz.tmp";
     }
 
     std::string

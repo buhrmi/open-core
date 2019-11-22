@@ -3,13 +3,12 @@
 // of this distribution or at http://www.apache.org/licenses/LICENSE-2.0
 
 #include "util/TmpDir.h"
+#include "crypto/Hex.h"
+#include "crypto/Random.h"
 #include "main/Application.h"
 #include "main/Config.h"
-#include "util/Logging.h"
-#include "util/make_unique.h"
-#include "crypto/Random.h"
-#include "crypto/Hex.h"
 #include "util/Fs.h"
+#include "util/Logging.h"
 
 namespace stellar
 {
@@ -21,9 +20,9 @@ TmpDir::TmpDir(std::string const& prefix)
     {
         std::string hex = binToHex(randomBytes(8));
         std::string name = prefix + "-" + hex;
-        if (fs::mkdir(name))
+        if (fs::mkpath(name))
         {
-            mPath = make_unique<std::string>(name);
+            mPath = std::make_unique<std::string>(name);
             break;
         }
         if (++attempts > 100)
@@ -45,18 +44,29 @@ TmpDir::getName() const
 
 TmpDir::~TmpDir()
 {
-    if (mPath)
+    if (!mPath)
+    {
+        return;
+    }
+
+    try
     {
         fs::deltree(*mPath);
         LOG(DEBUG) << "TmpDir deleted: " << *mPath;
-        mPath.reset();
     }
+    catch (std::runtime_error& e)
+    {
+        LOG(ERROR) << "Failed to delete TmpDir: " << *mPath
+                   << ", because: " << e.what();
+    }
+
+    mPath.reset();
 }
 
 TmpDirManager::TmpDirManager(std::string const& root) : mRoot(root)
 {
     clean();
-    fs::mkdir(root);
+    fs::mkpath(root);
 }
 
 TmpDirManager::~TmpDirManager()

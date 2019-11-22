@@ -9,6 +9,8 @@
 namespace stellar
 {
 
+class AbstractLedgerTxn;
+
 class CreateAccountOpFrame : public OperationFrame
 {
     CreateAccountResult&
@@ -22,9 +24,10 @@ class CreateAccountOpFrame : public OperationFrame
     CreateAccountOpFrame(Operation const& op, OperationResult& res,
                          TransactionFrame& parentTx);
 
-    bool doApply(medida::MetricsRegistry& metrics,
-                 LedgerDelta& delta, LedgerManager& ledgerManager) override;
-    bool doCheckValid(medida::MetricsRegistry& metrics) override;
+    bool doApply(AbstractLedgerTxn& ltx) override;
+    bool doCheckValid(uint32_t ledgerVersion) override;
+    void insertLedgerKeysToPrefetch(
+        std::unordered_set<LedgerKey>& keys) const override;
 
     static CreateAccountResultCode
     getInnerCode(OperationResult const& res)

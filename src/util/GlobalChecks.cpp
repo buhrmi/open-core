@@ -4,28 +4,48 @@
 
 #include "GlobalChecks.h"
 
-#ifdef WIN32
+#ifdef _WIN32
 #include <Windows.h>
 #endif
+#include <cstdio>
+#include <cstdlib>
 #include <thread>
-#include <cassert>
 
 namespace stellar
 {
 static std::thread::id mainThread = std::this_thread::get_id();
 
-void assertThreadIsMain()
+void
+assertThreadIsMain()
 {
     dbgAssert(mainThread == std::this_thread::get_id());
 }
 
-void dbgAbort()
+void
+dbgAbort()
 {
-#ifdef WIN32
+#ifdef _WIN32
     DebugBreak();
 #else
-    abort();
+    std::abort();
 #endif
 }
 
+void
+printErrorAndAbort(const char* s1)
+{
+    std::fprintf(stderr, "%s\n", s1);
+    std::fflush(stderr);
+    dbgAbort();
+    std::abort();
+}
+
+void
+printErrorAndAbort(const char* s1, const char* s2)
+{
+    std::fprintf(stderr, "%s%s\n", s1, s2);
+    std::fflush(stderr);
+    dbgAbort();
+    std::abort();
+}
 }

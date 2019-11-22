@@ -5,11 +5,11 @@
 // of this distribution or at http://www.apache.org/licenses/LICENSE-2.0
 
 #include "overlay/StellarXDR.h"
-#include <string>
-#include <memory>
-#include <vector>
-#include <future>
 #include <cereal/cereal.hpp>
+#include <future>
+#include <memory>
+#include <string>
+#include <vector>
 
 namespace stellar
 {
@@ -42,14 +42,14 @@ class FutureBucket
 
     enum State
     {
-        FB_CLEAR = 0,         // No inputs; no outputs; no hashes.
-        FB_HASH_OUTPUT = 1,   // Output hash; no output; no inputs or hashes.
-        FB_HASH_INPUTS = 2,   // Input hashes; no inputs; no outputs or hashes.
-        FB_LIVE_OUTPUT = 3,   // Output; output hashes; _maybe_ inputs and hashes.
-        FB_LIVE_INPUTS = 4,   // Inputs; input hashes; no outputs. Merge running.
+        FB_CLEAR = 0,       // No inputs; no outputs; no hashes.
+        FB_HASH_OUTPUT = 1, // Output hash; no output; no inputs or hashes.
+        FB_HASH_INPUTS = 2, // Input hashes; no inputs; no outputs or hashes.
+        FB_LIVE_OUTPUT = 3, // Output; output hashes; _maybe_ inputs and hashes.
+        FB_LIVE_INPUTS = 4, // Inputs; input hashes; no outputs. Merge running.
     };
 
-    State mState {FB_CLEAR};
+    State mState{FB_CLEAR};
 
     // These live values hold the input buckets and/or output std::shared_future
     // for a "live" bucket merge in progress. They will be empty when the
@@ -59,7 +59,8 @@ class FutureBucket
     std::shared_ptr<Bucket> mInputCurrBucket;
     std::shared_ptr<Bucket> mInputSnapBucket;
     std::vector<std::shared_ptr<Bucket>> mInputShadowBuckets;
-    std::shared_future<std::shared_ptr<Bucket>> mOutputBucket;
+    std::shared_ptr<Bucket> mOutputBucket;
+    std::shared_future<std::shared_ptr<Bucket>> mOutputBucketFuture;
 
     // These strings hold the serializable (or deserialized) bucket hashes of
     // the inputs and outputs of a merge; depending on the state of the
@@ -70,25 +71,22 @@ class FutureBucket
     std::string mInputSnapBucketHash;
     std::vector<std::string> mInputShadowBucketHashes;
     std::string mOutputBucketHash;
-    bool mKeepDeadEntries;
 
     void checkHashesMatch() const;
     void checkState() const;
-    void startMerge(Application& app);
+    void startMerge(Application& app, uint32_t maxProtocolVersion,
+                    bool countMergeEvents, uint32_t level);
 
     void clearInputs();
     void clearOutput();
     void setLiveOutput(std::shared_ptr<Bucket> b);
 
-public:
-
-    FutureBucket(Application& app,
-                 std::shared_ptr<Bucket> const& curr,
+  public:
+    FutureBucket(Application& app, std::shared_ptr<Bucket> const& curr,
                  std::shared_ptr<Bucket> const& snap,
                  std::vector<std::shared_ptr<Bucket>> const& shadows,
-                 bool keepDeadEntries);
-
-    FutureBucket(std::shared_ptr<Bucket> output);
+                 uint32_t maxProtocolVersion, bool countMergeEvents,
+                 uint32_t level);
 
     FutureBucket() = default;
     FutureBucket(FutureBucket const& other) = default;
@@ -100,8 +98,12 @@ public:
     // Returns whether this object is in a FB_LIVE_FOO state.
     bool isLive() const;
 
-    // Returns whether this object is in a FB_LIVE_INPUTS state (a merge is running).
+    // Returns whether this object is in a FB_LIVE_INPUTS state (a merge is
+    // running).
     bool isMerging() const;
+
+    // Returns whether this object is in a FB_CLEAR state.
+    bool isClear() const;
 
     // Returns whether this object is in a FB_HASH_FOO state.
     bool hasHashes() const;
@@ -119,13 +121,15 @@ public:
     std::shared_ptr<Bucket> resolve();
 
     // Precondition: !isLive(); transitions from FB_HASH_FOO to FB_LIVE_FOO
-    void makeLive(Application& app);
+    void makeLive(Application& app, uint32_t maxProtocolVersion,
+                  uint32_t level);
 
     // Return all hashes referenced by this future.
     std::vector<std::string> getHashes() const;
 
     template <class Archive>
-    void load(Archive& ar)
+    void
+    load(Archive& ar)
     {
         clear();
         ar(cereal::make_nvp("state", mState));
@@ -142,14 +146,16 @@ public:
         case FB_CLEAR:
             break;
         default:
-            throw std::runtime_error("deserialized unexpected FutureBucket state");
+            throw std::runtime_error(
+                "deserialized unexpected FutureBucket state");
             break;
         }
         checkState();
     }
 
     template <class Archive>
-    void save(Archive& ar) const
+    void
+    save(Archive& ar) const
     {
         checkState();
         switch (mState)

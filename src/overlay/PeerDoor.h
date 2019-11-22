@@ -5,6 +5,7 @@
 // of this distribution or at http://www.apache.org/licenses/LICENSE-2.0
 
 #include "util/asio.h"
+#include "TCPPeer.h"
 #include <memory>
 
 /*
@@ -24,7 +25,7 @@ class PeerDoor
     asio::ip::tcp::acceptor mAcceptor;
 
     virtual void acceptNextPeer();
-    virtual void handleKnock(std::shared_ptr<asio::ip::tcp::socket> pSocket);
+    virtual void handleKnock(std::shared_ptr<TCPPeer::SocketType> pSocket);
 
     friend PeerDoorStub;
 

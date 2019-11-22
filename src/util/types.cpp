@@ -3,12 +3,50 @@
 // of this distribution or at http://www.apache.org/licenses/LICENSE-2.0
 
 #include "util/types.h"
+#include "lib/util/format.h"
 #include "lib/util/uint128_t.h"
+#include "util/XDROperators.h"
+
+#include <algorithm>
+#include <limits>
 #include <locale>
 
 namespace stellar
 {
-using xdr::operator==;
+
+LedgerKey
+LedgerEntryKey(LedgerEntry const& e)
+{
+    auto& d = e.data;
+    LedgerKey k;
+    switch (d.type())
+    {
+
+    case ACCOUNT:
+        k.type(ACCOUNT);
+        k.account().accountID = d.account().accountID;
+        break;
+
+    case TRUSTLINE:
+        k.type(TRUSTLINE);
+        k.trustLine().accountID = d.trustLine().accountID;
+        k.trustLine().asset = d.trustLine().asset;
+        break;
+
+    case OFFER:
+        k.type(OFFER);
+        k.offer().sellerID = d.offer().sellerID;
+        k.offer().offerID = d.offer().offerID;
+        break;
+
+    case DATA:
+        k.type(DATA);
+        k.data().accountID = d.data().accountID;
+        k.data().dataName = d.data().dataName;
+        break;
+    }
+    return k;
+}
 
 bool
 isZero(uint256 const& b)
@@ -20,28 +58,53 @@ isZero(uint256 const& b)
     return true;
 }
 
-uint256
-makePublicKey(uint256 const& b)
+Hash&
+operator^=(Hash& l, Hash const& r)
 {
-    // SANITY pub from private
-    uint256 ret;
-    ret[0] = b[0];
-    ret[1] = b[1];
-    ret[2] = b[2];
-    return (ret);
+    std::transform(l.begin(), l.end(), r.begin(), l.begin(),
+                   [](uint8_t a, uint8_t b) -> uint8_t { return a ^ b; });
+    return l;
+}
+
+bool
+lessThanXored(Hash const& l, Hash const& r, Hash const& x)
+{
+    Hash v1, v2;
+    for (size_t i = 0; i < l.size(); i++)
+    {
+        v1[i] = x[i] ^ l[i];
+        v2[i] = x[i] ^ r[i];
+    }
+
+    return v1 < v2;
+}
+
+bool
+isString32Valid(std::string const& str)
+{
+    auto& loc = std::locale::classic();
+    for (auto c : str)
+    {
+        if (c < 0 || std::iscntrl(c, loc))
+        {
+            return false;
+        }
+    }
+    return true;
 }
 
 bool
 isAssetValid(Asset const& cur)
 {
-    if(cur.type() == ASSET_TYPE_NATIVE) return true;
+    if (cur.type() == ASSET_TYPE_NATIVE)
+        return true;
 
+    auto& loc = std::locale::classic();
     if (cur.type() == ASSET_TYPE_CREDIT_ALPHANUM4)
     {
         auto const& code = cur.alphaNum4().assetCode;
         bool zeros = false;
         bool onechar = false; // at least one non zero character
-        std::locale loc("C");
         for (uint8_t b : code)
         {
             if (b == 0)
@@ -55,8 +118,7 @@ isAssetValid(Asset const& cur)
             }
             else
             {
-                char t = *(char*)&b; // safe conversion to char
-                if (!std::isalnum(t, loc))
+                if (b > 0x7F || !std::isalnum((char)b, loc))
                 {
                     return false;
                 }
@@ -66,36 +128,42 @@ isAssetValid(Asset const& cur)
         return onechar;
     }
 
-    if(cur.type() == ASSET_TYPE_CREDIT_ALPHANUM12)
+    if (cur.type() == ASSET_TYPE_CREDIT_ALPHANUM12)
     {
         auto const& code = cur.alphaNum12().assetCode;
         bool zeros = false;
         int charcount = 0; // at least 5 non zero characters
-        std::locale loc("C");
-        for(uint8_t b : code)
+        for (uint8_t b : code)
         {
-            if(b == 0)
+            if (b == 0)
             {
                 zeros = true;
-            } else if(zeros)
+            }
+            else if (zeros)
             {
                 // zeros can only be trailing
                 return false;
-            } else
+            }
+            else
             {
-                char t = *(char*)&b; // safe conversion to char
-                if(!std::isalnum(t, loc))
+                if (b > 0x7F || !std::isalnum((char)b, loc))
                 {
                     return false;
                 }
                 charcount++;
             }
         }
-        return charcount>4;
+        return charcount > 4;
     }
     return false;
+}
 
-    
+AccountID
+getIssuer(Asset const& asset)
+{
+    return (asset.type() == ASSET_TYPE_CREDIT_ALPHANUM4
+                ? asset.alphaNum4().issuer
+                : asset.alphaNum12().issuer);
 }
 
 bool
@@ -106,7 +174,7 @@ compareAsset(Asset const& first, Asset const& second)
 
     if (first.type() == ASSET_TYPE_NATIVE)
         return true;
-  
+
     if (second.type() == ASSET_TYPE_CREDIT_ALPHANUM4)
     {
         if ((first.alphaNum4().issuer == second.alphaNum4().issuer) &&
@@ -114,100 +182,73 @@ compareAsset(Asset const& first, Asset const& second)
             return true;
     }
 
-    if(second.type() == ASSET_TYPE_CREDIT_ALPHANUM12)
+    if (second.type() == ASSET_TYPE_CREDIT_ALPHANUM12)
     {
-        if((first.alphaNum12().issuer == second.alphaNum12().issuer) &&
+        if ((first.alphaNum12().issuer == second.alphaNum12().issuer) &&
             (first.alphaNum12().assetCode == second.alphaNum12().assetCode))
             return true;
     }
     return false;
 }
 
-void assetCodeToStr(xdr::opaque_array<4U> const& code, std::string& retStr)
+int32_t
+unsignedToSigned(uint32_t v)
 {
-    retStr = "    ";
-    for (int n = 0; n < 4; n++)
-    {
-        if (code[n])
-            retStr[n] = code[n];
-        else
-        {
-            retStr.resize(n);
-            return;
-        }
-    }
-}
-
-void assetCodeToStr(xdr::opaque_array<12U> const& code, std::string& retStr)
-{
-    retStr = "    ";
-    for(int n = 0; n < 12; n++)
-    {
-        if(code[n])
-            retStr[n] = code[n];
-        else
-        {
-            retStr.resize(n);
-            return;
-        }
-    }
-}
-
-void strToAssetCode(xdr::opaque_array<4U>& ret, std::string const& str)
-{
-    for (size_t n = 0; (n < str.size()) && (n < 4); n++)
-    {
-        ret[n] = str[n];
-    }
-}
-
-void strToAssetCode(xdr::opaque_array<12U>& ret, std::string const& str)
-{
-    for(size_t n = 0; (n < str.size()) && (n < 12); n++)
-    {
-        ret[n] = str[n];
-    }
-}
-
-// calculates A*B/C when A*B overflows 64bits
-bool
-bigDivide(int64_t& result, int64_t A, int64_t B, int64_t C)
-{
-    bool res;
-    assert((A >= 0) && (B >= 0) && (C > 0));
-    uint64_t r2;
-    res = bigDivide(r2, (uint64_t)A, (uint64_t)B, (uint64_t)C);
-    if (res)
-    {
-        res = r2 <= INT64_MAX;
-        result = r2;
-    }
-    return res;
-}
-
-bool
-bigDivide(uint64_t& result, uint64_t A, uint64_t B, uint64_t C)
-{
-    // update when moving to (signed) int128
-    uint128_t a(A);
-    uint128_t b(B);
-    uint128_t c(C);
-    uint128_t x = (a * b) / c;
-
-    result = (uint64_t)x;
-
-    return (x <= UINT64_MAX);
+    if (v > static_cast<uint32_t>(std::numeric_limits<int32_t>::max()))
+        throw std::runtime_error("unsigned-to-signed overflow");
+    return static_cast<int32_t>(v);
 }
 
 int64_t
-bigDivide(int64_t A, int64_t B, int64_t C)
+unsignedToSigned(uint64_t v)
 {
-    int64_t res;
-    if (!bigDivide(res, A, B, C))
+    if (v > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()))
+        throw std::runtime_error("unsigned-to-signed overflow");
+    return static_cast<int64_t>(v);
+}
+
+std::string
+formatSize(size_t size)
+{
+    const std::vector<std::string> suffixes = {"B", "KB", "MB", "GB"};
+    double dsize = static_cast<double>(size);
+
+    auto i = 0;
+    while (dsize >= 1024 && i < suffixes.size() - 1)
     {
-        throw std::overflow_error("overflow while performing bigDivide");
+        dsize /= 1024;
+        i++;
     }
-    return res;
+
+    return fmt::format("{:.2f}{}", dsize, suffixes[i]);
+}
+
+bool
+addBalance(int64_t& balance, int64_t delta, int64_t maxBalance)
+{
+    assert(balance >= 0);
+    assert(maxBalance >= 0);
+
+    if (delta == 0)
+    {
+        return true;
+    }
+
+    // strange-looking condition, but without UB
+    // equivalent to (balance + delta) < 0
+    // as balance >= 0, -balance > MIN_INT64, so no conversions needed
+    if (delta < -balance)
+    {
+        return false;
+    }
+
+    if (maxBalance - balance < delta)
+    {
+        return false;
+    }
+
+    balance += delta;
+    return true;
 }
 
 bool
@@ -222,7 +263,8 @@ iequals(std::string const& a, std::string const& b)
     return true;
 }
 
-bool operator>=(Price const& a, Price const& b)
+bool
+operator>=(Price const& a, Price const& b)
 {
     uint128_t l(a.n);
     uint128_t r(a.d);
@@ -231,7 +273,8 @@ bool operator>=(Price const& a, Price const& b)
     return l >= r;
 }
 
-bool operator>(Price const& a, Price const& b)
+bool
+operator>(Price const& a, Price const& b)
 {
     uint128_t l(a.n);
     uint128_t r(a.d);
@@ -240,7 +283,8 @@ bool operator>(Price const& a, Price const& b)
     return l > r;
 }
 
-bool operator==(Price const& a, Price const& b)
+bool
+operator==(Price const& a, Price const& b)
 {
     return (a.n == b.n) && (a.d == b.d);
 }

@@ -9,26 +9,52 @@
 // first to include <windows.h> -- so we try to include it before everything
 // else.
 #include "util/asio.h"
-#include "ledger/LedgerManager.h"
-#include "herder/Herder.h"
-#include "overlay/OverlayManager.h"
 #include "bucket/Bucket.h"
 #include "bucket/BucketManager.h"
-#include "history/HistoryManager.h"
+#include "crypto/SHA.h"
+#include "crypto/SecretKey.h"
 #include "database/Database.h"
-#include "process/ProcessManager.h"
+#include "herder/Herder.h"
+#include "herder/HerderPersistence.h"
+#include "history/HistoryArchiveManager.h"
+#include "history/HistoryManager.h"
+#include "invariant/AccountSubEntriesCountIsValid.h"
+#include "invariant/BucketListIsConsistentWithDatabase.h"
+#include "invariant/ConservationOfLumens.h"
+#include "invariant/InvariantManager.h"
+#include "invariant/LedgerEntryIsValid.h"
+#include "invariant/LiabilitiesMatchOffers.h"
+#include "ledger/LedgerManager.h"
+#include "ledger/LedgerTxn.h"
 #include "main/CommandHandler.h"
-#include "simulation/LoadGenerator.h"
+#include "main/ExternalQueue.h"
+#include "main/Maintainer.h"
+#include "main/StellarCoreVersion.h"
+#include "medida/counter.h"
+#include "medida/meter.h"
 #include "medida/metrics_registry.h"
 #include "medida/reporting/console_reporter.h"
-#include "medida/meter.h"
-
-#include "util/TmpDir.h"
+#include "medida/timer.h"
+#include "overlay/BanManager.h"
+#include "overlay/OverlayManager.h"
+#include "process/ProcessManager.h"
+#include "scp/LocalNode.h"
+#include "scp/QuorumSetUtils.h"
+#include "util/GlobalChecks.h"
+#include "util/LogSlowExecution.h"
 #include "util/Logging.h"
-#include "util/make_unique.h"
+#include "util/StatusManager.h"
+#include "util/Thread.h"
+#include "util/TmpDir.h"
+#include "work/WorkScheduler.h"
+
+#ifdef BUILD_TESTS
+#include "simulation/LoadGenerator.h"
+#endif
 
 #include <set>
 #include <string>
+#include <util/format.h>
 
 static const int SHUTDOWN_DELAY_SECONDS = 1;
 
@@ -38,12 +64,22 @@ namespace stellar
 ApplicationImpl::ApplicationImpl(VirtualClock& clock, Config const& cfg)
     : mVirtualClock(clock)
     , mConfig(cfg)
-    , mWorkerIOService(std::thread::hardware_concurrency())
-    , mWork(make_unique<asio::io_service::work>(mWorkerIOService))
+    , mWorkerIOContext(mConfig.WORKER_THREADS)
+    , mWork(std::make_unique<asio::io_context::work>(mWorkerIOContext))
     , mWorkerThreads()
-    , mStopSignals(clock.getIOService(), SIGINT)
+    , mStopSignals(clock.getIOContext(), SIGINT)
+    , mStarted(false)
     , mStopping(false)
     , mStoppingTimer(*this)
+    , mMetrics(std::make_unique<medida::MetricsRegistry>())
+    , mAppStateCurrent(mMetrics->NewCounter({"app", "state", "current"}))
+    , mPostOnMainThreadDelay(
+          mMetrics->NewTimer({"app", "post-on-main-thread", "delay"}))
+    , mPostOnMainThreadWithDelayDelay(mMetrics->NewTimer(
+          {"app", "post-on-main-thread-with-delay", "delay"}))
+    , mPostOnBackgroundThreadDelay(
+          mMetrics->NewTimer({"app", "post-on-background-thread", "delay"}))
+    , mStartedOn(clock.now())
 {
 #ifdef SIGQUIT
     mStopSignals.add(SIGQUIT);
@@ -52,69 +88,97 @@ ApplicationImpl::ApplicationImpl(VirtualClock& clock, Config const& cfg)
     mStopSignals.add(SIGTERM);
 #endif
 
-    unsigned t = std::thread::hardware_concurrency();
-    LOG(INFO) << "Application constructing "
-              << "(worker threads: " << t << ")";
-    mStopSignals.async_wait([this](asio::error_code const& ec, int sig)
-                            {
-                                if (!ec)
-                                {
-                                    LOG(INFO) << "got signal " << sig
-                                              << ", shutting down";
-                                    this->gracefulStop();
-                                }
-                            });
+    std::srand(static_cast<uint32>(clock.now().time_since_epoch().count()));
 
-    // These must be constructed _after_ because they frequently call back
-    // into App.getFoo() to get information / start up.
-    mMetrics = make_unique<medida::MetricsRegistry>();
-    mDatabase = make_unique<Database>(*this);
-    mPersistentState = make_unique<PersistentState>(*this);
+    mNetworkID = sha256(mConfig.NETWORK_PASSPHRASE);
 
-    bool initializeDB =
-        (mConfig.REBUILD_DB || mConfig.DATABASE == "sqlite3://:memory:");
-    if (initializeDB)
-    {
-        auto wipeMsg = (getPersistentState().getState(
-                            PersistentState::kDatabaseInitialized) == "true"
-                            ? " wiped and initialized"
-                            : " initialized");
+    mStopSignals.async_wait([this](asio::error_code const& ec, int sig) {
+        if (!ec)
+        {
+            LOG(INFO) << "got signal " << sig << ", shutting down";
 
-        mDatabase->initialize();
+#ifdef BUILD_TESTS
+            if (mConfig.TEST_CASES_ENABLED)
+            {
+                exit(1);
+            }
+#endif
+            this->gracefulStop();
+        }
+    });
 
-        LOG(INFO) << "* ";
-        LOG(INFO) << "* The database has been" << wipeMsg;
-        LOG(INFO) << "* ";
-    }
-    else if (mPersistentState->getState(
-                 PersistentState::kForceSCPOnNextLaunch) == "true")
-    {
-        mConfig.FORCE_SCP = true;
-    }
-
-    mTmpDirManager = make_unique<TmpDirManager>(cfg.TMP_DIR_PATH);
-    mOverlayManager = OverlayManager::create(*this);
-    mLedgerManager = LedgerManager::create(*this);
-    mHerder = Herder::create(*this);
-    mBucketManager = BucketManager::create(*this);
-    mHistoryManager = HistoryManager::create(*this);
-    mProcessManager = ProcessManager::create(*this);
-    mCommandHandler = make_unique<CommandHandler>(*this);
-
+    auto t = mConfig.WORKER_THREADS;
+    LOG(DEBUG) << "Application constructing "
+               << "(worker threads: " << t << ")";
     while (t--)
     {
-        mWorkerThreads.emplace_back([this, t]()
-                                    {
-                                        this->runWorkerThread(t);
-                                    });
+        auto thread = std::thread{[this]() {
+            runCurrentThreadWithLowPriority();
+            mWorkerIOContext.run();
+        }};
+        mWorkerThreads.emplace_back(std::move(thread));
     }
+}
 
-    if (initializeDB)
+void
+ApplicationImpl::initialize(bool createNewDB)
+{
+    mDatabase = std::make_unique<Database>(*this);
+    mPersistentState = std::make_unique<PersistentState>(*this);
+    mOverlayManager = createOverlayManager();
+    mLedgerManager = createLedgerManager();
+    mHerder = createHerder();
+    mHerderPersistence = HerderPersistence::create(*this);
+    mBucketManager = BucketManager::create(*this);
+    mCatchupManager = CatchupManager::create(*this);
+    mHistoryArchiveManager = std::make_unique<HistoryArchiveManager>(*this);
+    mHistoryManager = HistoryManager::create(*this);
+    mInvariantManager = createInvariantManager();
+    mMaintainer = std::make_unique<Maintainer>(*this);
+    mCommandHandler = std::make_unique<CommandHandler>(*this);
+    mWorkScheduler = WorkScheduler::create(*this);
+    mBanManager = BanManager::create(*this);
+    mStatusManager = std::make_unique<StatusManager>();
+    mLedgerTxnRoot = std::make_unique<LedgerTxnRoot>(
+        *mDatabase, mConfig.ENTRY_CACHE_SIZE, mConfig.BEST_OFFERS_CACHE_SIZE,
+        mConfig.PREFETCH_BATCH_SIZE);
+
+    BucketListIsConsistentWithDatabase::registerInvariant(*this);
+    AccountSubEntriesCountIsValid::registerInvariant(*this);
+    ConservationOfLumens::registerInvariant(*this);
+    LedgerEntryIsValid::registerInvariant(*this);
+    LiabilitiesMatchOffers::registerInvariant(*this);
+    enableInvariantsFromConfig();
+
+    if (createNewDB || mConfig.DATABASE.value == "sqlite3://:memory:")
     {
-        mLedgerManager->startNewLedger();
+        newDB();
+    }
+    else
+    {
+        upgradeDB();
     }
 
-    LOG(INFO) << "Application constructed";
+    // Subtle: process manager should come to existence _after_ BucketManager
+    // initialization and newDB run, as it relies on tmp dir created in the
+    // constructor
+    mProcessManager = ProcessManager::create(*this);
+    LOG(DEBUG) << "Application constructed";
+}
+
+void
+ApplicationImpl::newDB()
+{
+    mDatabase->initialize();
+    mDatabase->upgradeToCurrentSchema();
+    mBucketManager->dropAll();
+    mLedgerManager->startNewLedger();
+}
+
+void
+ApplicationImpl::upgradeDB()
+{
+    mDatabase->upgradeToCurrentSchema();
 }
 
 void
@@ -146,7 +210,8 @@ ApplicationImpl::reportCfgMetrics()
 
     if (reportAvailableMetrics)
     {
-        LOG(INFO) << "Available metrics: ";
+        LOG(INFO) << "Update REPORT_METRICS value in configuration file to "
+                     "only include available metrics:";
         for (auto const& n : allMetrics)
         {
             LOG(INFO) << "    " << n;
@@ -178,18 +243,98 @@ ApplicationImpl::reportCfgMetrics()
     }
 }
 
+Json::Value
+ApplicationImpl::getJsonInfo()
+{
+    auto root = Json::Value{};
+
+    auto& lm = getLedgerManager();
+
+    auto& info = root["info"];
+
+    info["build"] = STELLAR_CORE_VERSION;
+    info["protocol_version"] = getConfig().LEDGER_PROTOCOL_VERSION;
+    info["state"] = getStateHuman();
+    info["startedOn"] = VirtualClock::pointToISOString(mStartedOn);
+    auto const& lcl = lm.getLastClosedLedgerHeader();
+    info["ledger"]["num"] = (int)lcl.header.ledgerSeq;
+    info["ledger"]["hash"] = binToHex(lcl.hash);
+    info["ledger"]["closeTime"] = (Json::UInt64)lcl.header.scpValue.closeTime;
+    info["ledger"]["version"] = lcl.header.ledgerVersion;
+    info["ledger"]["baseFee"] = lcl.header.baseFee;
+    info["ledger"]["baseReserve"] = lcl.header.baseReserve;
+    info["ledger"]["maxTxSetSize"] = lcl.header.maxTxSetSize;
+    info["ledger"]["age"] = (int)lm.secondsSinceLastLedgerClose();
+    info["peers"]["pending_count"] = getOverlayManager().getPendingPeersCount();
+    info["peers"]["authenticated_count"] =
+        getOverlayManager().getAuthenticatedPeersCount();
+    info["network"] = getConfig().NETWORK_PASSPHRASE;
+
+    auto& statusMessages = getStatusManager();
+    auto counter = 0;
+    for (auto statusMessage : statusMessages)
+    {
+        info["status"][counter++] = statusMessage.second;
+    }
+
+    auto& herder = getHerder();
+
+    auto& quorumInfo = info["quorum"];
+
+    // Try to get quorum set info for the previous ledger closed by the
+    // network.
+    if (herder.getCurrentLedgerSeq() > 1)
+    {
+        quorumInfo =
+            herder.getJsonQuorumInfo(getConfig().NODE_SEED.getPublicKey(), true,
+                                     false, herder.getCurrentLedgerSeq() - 1);
+    }
+
+    // If the quorum set info for the previous ledger is missing, use the
+    // current ledger
+    auto qset = quorumInfo.get("qset", "");
+    if (quorumInfo.empty() || qset.empty())
+    {
+        quorumInfo =
+            herder.getJsonQuorumInfo(getConfig().NODE_SEED.getPublicKey(), true,
+                                     false, herder.getCurrentLedgerSeq());
+    }
+
+    auto invariantFailures = getInvariantManager().getJsonInfo();
+    if (!invariantFailures.empty())
+    {
+        info["invariant_failures"] = invariantFailures;
+    }
+
+    info["history_failure_rate"] =
+        fmt::format("{:.2}", getHistoryArchiveManager().getFailureRate());
+
+    return root;
+}
+
 void
 ApplicationImpl::reportInfo()
 {
     mLedgerManager->loadLastKnownLedger(nullptr);
-    mCommandHandler->manualCmd("info");
+    LOG(INFO) << "info -> " << getJsonInfo().toStyledString();
+}
+
+Hash const&
+ApplicationImpl::getNetworkID() const
+{
+    return mNetworkID;
 }
 
 ApplicationImpl::~ApplicationImpl()
 {
     LOG(INFO) << "Application destructing";
+    shutdownWorkScheduler();
+    if (mProcessManager)
+    {
+        mProcessManager->shutdown();
+    }
     reportCfgMetrics();
-    shutdownMainIOService();
+    shutdownMainIOContext();
     joinAllThreads();
     LOG(INFO) << "Application destroyed";
 }
@@ -203,23 +348,60 @@ ApplicationImpl::timeNow()
 void
 ApplicationImpl::start()
 {
+    if (mStarted)
+    {
+        CLOG(INFO, "Ledger") << "Skipping application start up";
+        return;
+    }
+    CLOG(INFO, "Ledger") << "Starting up application";
+    mStarted = true;
+
+    if (mConfig.TESTING_UPGRADE_DATETIME.time_since_epoch().count() != 0)
+    {
+        mHerder->setUpgrades(mConfig);
+    }
+
+    if (mPersistentState->getState(PersistentState::kForceSCPOnNextLaunch) ==
+        "true")
+    {
+        if (!mConfig.NODE_IS_VALIDATOR)
+        {
+            LOG(ERROR) << "Starting stellar-core in FORCE_SCP mode requires "
+                          "NODE_IS_VALIDATOR to be set";
+            throw std::invalid_argument("NODE_IS_VALIDATOR not set");
+        }
+        mConfig.FORCE_SCP = true;
+    }
+
     if (mConfig.QUORUM_SET.threshold == 0)
     {
         throw std::invalid_argument("Quorum not configured");
     }
-    mOverlayManager->start();
 
-    if (mPersistentState->getState(PersistentState::kDatabaseInitialized) !=
-        "true")
-    {
-        throw std::runtime_error(
-            "Database not initialized and REBUID_DB is false.");
-    }
+    mConfig.logBasicInfo();
 
     bool done = false;
     mLedgerManager->loadLastKnownLedger(
-        [this, &done](asio::error_code const& ec)
-        {
+        [this, &done](asio::error_code const& ec) {
+            if (ec)
+            {
+                throw std::runtime_error(
+                    "Unable to restore last-known ledger state");
+            }
+
+            // restores Herder's state before starting overlay
+            mHerder->restoreState();
+            // set known cursors before starting maintenance job
+            ExternalQueue ps(*this);
+            ps.setInitialCursors(mConfig.KNOWN_CURSORS);
+            mMaintainer->start();
+            mOverlayManager->start();
+            auto npub = mHistoryManager->publishQueuedHistory();
+            if (npub != 0)
+            {
+                CLOG(INFO, "Ledger")
+                    << "Restarted publishing " << npub << " queued snapshots";
+            }
             if (mConfig.FORCE_SCP)
             {
                 std::string flagClearedMsg = "";
@@ -241,16 +423,8 @@ ApplicationImpl::start()
             done = true;
         });
 
-    while (!done)
-    {
-        mVirtualClock.crank(true);
-    }
-}
-
-void
-ApplicationImpl::runWorkerThread(unsigned i)
-{
-    mWorkerIOService.run();
+    while (!done && mVirtualClock.crank(true))
+        ;
 }
 
 void
@@ -265,24 +439,47 @@ ApplicationImpl::gracefulStop()
     {
         mOverlayManager->shutdown();
     }
+    shutdownWorkScheduler();
+    if (mProcessManager)
+    {
+        mProcessManager->shutdown();
+    }
+    if (mBucketManager)
+    {
+        mBucketManager->shutdown();
+    }
 
     mStoppingTimer.expires_from_now(
         std::chrono::seconds(SHUTDOWN_DELAY_SECONDS));
 
     mStoppingTimer.async_wait(
-        std::bind(&ApplicationImpl::shutdownMainIOService, this),
+        std::bind(&ApplicationImpl::shutdownMainIOContext, this),
         VirtualTimer::onFailureNoop);
 }
 
 void
-ApplicationImpl::shutdownMainIOService()
+ApplicationImpl::shutdownMainIOContext()
 {
-    if (!mVirtualClock.getIOService().stopped())
+    if (!mVirtualClock.getIOContext().stopped())
     {
         // Drain all events; things are shutting down.
         while (mVirtualClock.cancelAllEvents())
             ;
-        mVirtualClock.getIOService().stop();
+        mVirtualClock.getIOContext().stop();
+    }
+}
+
+void
+ApplicationImpl::shutdownWorkScheduler()
+{
+    if (mWorkScheduler)
+    {
+        mWorkScheduler->shutdown();
+
+        while (mWorkScheduler->getState() != BasicWork::State::WORK_ABORTED)
+        {
+            mVirtualClock.crank();
+        }
     }
 }
 
@@ -316,30 +513,27 @@ ApplicationImpl::manualClose()
     return false;
 }
 
+#ifdef BUILD_TESTS
 void
-ApplicationImpl::generateLoad(uint32_t nAccounts, uint32_t nTxs,
-                              uint32_t txRate, bool autoRate)
+ApplicationImpl::generateLoad(bool isCreate, uint32_t nAccounts,
+                              uint32_t offset, uint32_t nTxs, uint32_t txRate,
+                              uint32_t batchSize)
+{
+    getMetrics().NewMeter({"loadgen", "run", "start"}, "run").Mark();
+    getLoadGenerator().generateLoad(isCreate, nAccounts, offset, nTxs, txRate,
+                                    batchSize);
+}
+
+LoadGenerator&
+ApplicationImpl::getLoadGenerator()
 {
     if (!mLoadGenerator)
     {
-        mLoadGenerator = make_unique<LoadGenerator>();
+        mLoadGenerator = std::make_unique<LoadGenerator>(*this);
     }
-    getMetrics().NewMeter({"loadgen", "run", "start"}, "run").Mark();
-    mLoadGenerator->generateLoad(*this, nAccounts, nTxs, txRate, autoRate);
+    return *mLoadGenerator;
 }
-
-void
-ApplicationImpl::checkDB()
-{
-    getClock().getIOService().post(
-        [this]
-        {
-            checkDBAgainstBuckets(this->getMetrics(),
-                                  this->getBucketManager(),
-                                  this->getDatabase(),
-                                  this->getBucketManager().getBucketList());
-        });
-}
+#endif
 
 void
 ApplicationImpl::applyCfgCommands()
@@ -360,7 +554,12 @@ Application::State
 ApplicationImpl::getState() const
 {
     State s;
-    if (mStopping)
+
+    if (!mStarted)
+    {
+        s = APP_CREATED_STATE;
+    }
+    else if (mStopping)
     {
         s = APP_STOPPING_STATE;
     }
@@ -415,10 +614,57 @@ ApplicationImpl::getMetrics()
     return *mMetrics;
 }
 
+void
+ApplicationImpl::syncOwnMetrics()
+{
+    int64_t c = mAppStateCurrent.count();
+    int64_t n = static_cast<int64_t>(getState());
+    if (c != n)
+    {
+        mAppStateCurrent.set_count(n);
+    }
+
+    // Flush crypto pure-global-cache stats. They don't belong
+    // to a single app instance but first one to flush will claim
+    // them.
+    uint64_t vhit = 0, vmiss = 0;
+    PubKeyUtils::flushVerifySigCacheCounts(vhit, vmiss);
+    mMetrics->NewMeter({"crypto", "verify", "hit"}, "signature").Mark(vhit);
+    mMetrics->NewMeter({"crypto", "verify", "miss"}, "signature").Mark(vmiss);
+    mMetrics->NewMeter({"crypto", "verify", "total"}, "signature")
+        .Mark(vhit + vmiss);
+
+    // Similarly, flush global process-table stats.
+    mMetrics->NewCounter({"process", "memory", "handles"})
+        .set_count(mProcessManager->getNumRunningProcesses());
+}
+
+void
+ApplicationImpl::syncAllMetrics()
+{
+    mHerder->syncMetrics();
+    mLedgerManager->syncMetrics();
+    syncOwnMetrics();
+}
+
+void
+ApplicationImpl::clearMetrics(std::string const& domain)
+{
+    MetricResetter resetter;
+    auto const& metrics = mMetrics->GetAllMetrics();
+    for (auto const& kv : metrics)
+    {
+        if (domain.empty() || kv.first.domain() == domain)
+        {
+            kv.second->Process(resetter);
+        }
+    }
+}
+
 TmpDirManager&
 ApplicationImpl::getTmpDirManager()
 {
-    return *mTmpDirManager;
+    return getBucketManager().getTmpDirManager();
 }
 
 LedgerManager&
@@ -433,10 +679,28 @@ ApplicationImpl::getBucketManager()
     return *mBucketManager;
 }
 
+CatchupManager&
+ApplicationImpl::getCatchupManager()
+{
+    return *mCatchupManager;
+}
+
+HistoryArchiveManager&
+ApplicationImpl::getHistoryArchiveManager()
+{
+    return *mHistoryArchiveManager;
+}
+
 HistoryManager&
 ApplicationImpl::getHistoryManager()
 {
     return *mHistoryManager;
+}
+
+Maintainer&
+ApplicationImpl::getMaintainer()
+{
+    return *mMaintainer;
 }
 
 ProcessManager&
@@ -451,6 +715,18 @@ ApplicationImpl::getHerder()
     return *mHerder;
 }
 
+HerderPersistence&
+ApplicationImpl::getHerderPersistence()
+{
+    return *mHerderPersistence;
+}
+
+InvariantManager&
+ApplicationImpl::getInvariantManager()
+{
+    return *mInvariantManager;
+}
+
 OverlayManager&
 ApplicationImpl::getOverlayManager()
 {
@@ -458,7 +734,7 @@ ApplicationImpl::getOverlayManager()
 }
 
 Database&
-ApplicationImpl::getDatabase()
+ApplicationImpl::getDatabase() const
 {
     return *mDatabase;
 }
@@ -469,9 +745,109 @@ ApplicationImpl::getPersistentState()
     return *mPersistentState;
 }
 
-asio::io_service&
-ApplicationImpl::getWorkerIOService()
+CommandHandler&
+ApplicationImpl::getCommandHandler()
 {
-    return mWorkerIOService;
+    return *mCommandHandler;
+}
+
+WorkScheduler&
+ApplicationImpl::getWorkScheduler()
+{
+    return *mWorkScheduler;
+}
+
+BanManager&
+ApplicationImpl::getBanManager()
+{
+    return *mBanManager;
+}
+
+StatusManager&
+ApplicationImpl::getStatusManager()
+{
+    return *mStatusManager;
+}
+
+asio::io_context&
+ApplicationImpl::getWorkerIOContext()
+{
+    return mWorkerIOContext;
+}
+
+void
+ApplicationImpl::postOnMainThread(std::function<void()>&& f,
+                                  std::string jobName)
+{
+    LogSlowExecution isSlow{std::move(jobName), LogSlowExecution::Mode::MANUAL,
+                            "executed after"};
+    mVirtualClock.postToCurrentCrank([ this, f = std::move(f), isSlow ]() {
+        mPostOnMainThreadDelay.Update(isSlow.checkElapsedTime());
+        f();
+    });
+}
+
+void
+ApplicationImpl::postOnMainThreadWithDelay(std::function<void()>&& f,
+                                           std::string jobName)
+{
+    LogSlowExecution isSlow{std::move(jobName), LogSlowExecution::Mode::MANUAL,
+                            "executed after"};
+    mVirtualClock.postToNextCrank([ this, f = std::move(f), isSlow ]() {
+        mPostOnMainThreadWithDelayDelay.Update(isSlow.checkElapsedTime());
+        f();
+    });
+}
+
+void
+ApplicationImpl::postOnBackgroundThread(std::function<void()>&& f,
+                                        std::string jobName)
+{
+    LogSlowExecution isSlow{std::move(jobName), LogSlowExecution::Mode::MANUAL,
+                            "executed after"};
+    asio::post(getWorkerIOContext(), [ this, f = std::move(f), isSlow ]() {
+        mPostOnBackgroundThreadDelay.Update(isSlow.checkElapsedTime());
+        f();
+    });
+}
+
+void
+ApplicationImpl::enableInvariantsFromConfig()
+{
+    for (auto name : mConfig.INVARIANT_CHECKS)
+    {
+        mInvariantManager->enableInvariant(name);
+    }
+}
+
+std::unique_ptr<Herder>
+ApplicationImpl::createHerder()
+{
+    return Herder::create(*this);
+}
+
+std::unique_ptr<InvariantManager>
+ApplicationImpl::createInvariantManager()
+{
+    return InvariantManager::create(*this);
+}
+
+std::unique_ptr<OverlayManager>
+ApplicationImpl::createOverlayManager()
+{
+    return OverlayManager::create(*this);
+}
+
+std::unique_ptr<LedgerManager>
+ApplicationImpl::createLedgerManager()
+{
+    return LedgerManager::create(*this);
+}
+
+LedgerTxnRoot&
+ApplicationImpl::getLedgerTxnRoot()
+{
+    assertThreadIsMain();
+    return *mLedgerTxnRoot;
 }
 }

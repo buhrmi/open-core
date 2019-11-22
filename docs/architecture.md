@@ -1,10 +1,6 @@
 ---
-id: architecture
-title: Architecture
-category: Documents
+title: Process-level architecture
 ---
-Process-level architecture
-==========================
 
 Application owns a ledger-forming component, a p2p "overlay" component for
 connecting to peers and flooding messages between peers, a set-synchronization
@@ -14,25 +10,20 @@ the ledger, a crypto component for confirming signatures and hashing results,
 and a database component for persisting ledger changes.
 Two slightly-obscurely-named components are:
 
-  - "bucketList", stored in the directory "bucket": the in-memory and on-disk
+  - "BucketList", stored in the directory "bucket": the in-memory and on-disk
     linear history and ledger form that is hashed. A specific arrangement of
-    concatenations-of-XDR. Organized around "temporal buckets". Entries tending 
+    concatenations-of-XDR. Organized around "temporal buckets". Entries tending
 	to stay in buckets grouped by how frequently they change.
-	see [`src/bucket/readme.md`](../src/bucket/readme.md)
+	see [`src/bucket/readme.md`](/src/bucket/readme.md)
 
   - SCP -- "Stellar Consensus Protocol", the component implementing the
-    new consensus algorithm.
+    [consensus algorithm](https://www.stellar.org/papers/stellar-consensus-protocol.pdf).
 
 Other details:
 
   - Single main thread doing async I/O and forming consensus; multiple
     worker threads doing computation (primarily memcpy, serialization,
     hashing). No multithreading on the core I/O or consensus logic.
-
-  - No secondary internal "work queue" / scheduler, nor secondary internal
-    packet transmit queues. Any async work is posted to either of the main
-    or worker asio io_service queues. Any async transmits are posted as
-    asio write callbacks that own their transmit buffers.
 
   - No secondary process-supervision process, no autonomous threads /
     complex shutdown requests. Can generally just destroy the application
@@ -46,7 +37,7 @@ Other details:
 
   - Storage is split in two pieces, one bulk/cold Bucket-based store (history)
     kept in flat files, and one hot/indexed store (SQL DB). Both kept primarily
-	_off_ the validator nodes.
+    _off_ the validator nodes.
 
   - No direct service of public HTTP requests. HTTP and websocket frontends
     are on separate public/frontend servers.
@@ -62,7 +53,7 @@ Other details:
     single, standard XDR for canonical (hashed) format, history, and
     inter-node messaging.
 
-  - No use of custom datatypes (No custom time epochs, asset codes, decimal
+  - No use of custom datatypes (No custom time epochs, currency codes, decimal
     floating point, etc.)
 
 
@@ -119,7 +110,7 @@ mind.
   - Storing the consensus transaction log and set of ledger snapshots in
     canonical form (compressed XDR blocks, aim for many megabytes, but not
     gigabytes, per block).
-  - Acccepting new blocks from validators running archival commands, at
+  - Accepting new blocks from validators running archival commands, at
     frequency between minutes and hours. Effectively "continuous backup".
   - Serving history to validators that are new or out of sync.
   - Serving history to the general public who want to analyze it / back it up.
@@ -141,5 +132,3 @@ with:
   - Optionally feeding (some?) tx proposals submitted to them into core network.
   - Basically just a stellar-network load balancer / firewall for public access,
     for people who don't want to form trust relationships.
-
-
