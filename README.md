@@ -1,13 +1,13 @@
-[![Build Status](https://travis-ci.org/buhrmi/open-core.svg?branch=auto)](https://travis-ci.org/buhrmi/open-core)
+[![Build Status](https://travis-ci.org/buhrmi/aya.svg?branch=master)](https://travis-ci.org/buhrmi/aya)
 
-# opencore
+# Aya
 
-Opencore is a fork of stellar with a lot of stuff that nobody likes going to be removed. That list includes:
+Aya is a blockchain using the the Stellar Consensus Protocol. It's almost the same as Stellar, but with some differences that I believe will make Aya the easiest and most accessible blockchain in the world.
 
-- `createAccount` transactions. It shouldn't be neccessary to enforce a `createAccount` transaction before a user can receive funds. All addresses should automatically be valid accounts.
-- Trustlines. You can still send custom assets, but the receiver does not need to create a trustline first. every user automatically has an "unlimited" trustline for every asset.
+- No `createAccount` transactions. It shouldn't be neccessary to enforce a `createAccount` transaction before a user can receive funds. All addresses should automatically be valid accounts.
+- No trustlines. You can still send custom assets, but the receiver does not need to create a trustline first. every user automatically has an "unlimited" trustline for every asset.
 
-## Stellar
+## About Stellar
 
 Stellar is a replicated state machine that maintains a local copy of a cryptographic ledger and processes transactions against it, in consensus with a set of peers.
 It implements the [Stellar Consensus Protocol](https://github.com/stellar/stellar-core/blob/master/src/scp/readme.md), a _federated_ consensus protocol.
