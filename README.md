@@ -17,6 +17,8 @@ Learn more by reading the [overview document](https://github.com/stellar/stellar
 
 # Documentation
 
+> Note that the documentation is forked from Stellar. Be sure to replace the stellar repositories with the aya repositories, when following the instructions below. 
+
 Documentation of the code's layout and abstractions, as well as for the
 functionality available, can be found in
 [`./docs`](https://github.com/stellar/stellar-core/tree/master/docs).
