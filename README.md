@@ -7,6 +7,8 @@ Aya is a replicated state machine using the the [Stellar Consensus Protocol](htt
 - No `createAccount` transactions. It shouldn't be neccessary to enforce a `createAccount` transaction before a user can receive funds. All addresses should automatically be valid accounts.
 - No trustlines. You can still send custom assets, but the receiver does not need to create a trustline first. every user automatically has an "unlimited" trustline for every asset.
 
+It might sound crazy, but I believe that with these small changes, and some time, the network might be able to overtake the original Stellar network in terms of accessibility and - consequently - trade volume.
+
 ## About Stellar
 
 Stellar is a replicated state machine that maintains a local copy of a cryptographic ledger and processes transactions against it, in consensus with a set of peers.
