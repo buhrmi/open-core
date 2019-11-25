@@ -6,6 +6,7 @@ Aya is a replicated state machine using the the [Stellar Consensus Protocol](htt
 
 - No `createAccount` transactions. It shouldn't be neccessary to enforce a `createAccount` transaction before a user can receive funds. All addresses should automatically be valid accounts.
 - No trustlines. You can still send custom assets, but the receiver does not need to create a trustline first. every user automatically has an "unlimited" trustline for every asset.
+- No inflation. Support for switching to a non-inflationary model is already strong in the Stellar community. Aya will support this non-inflationary model from the get-go.
 
 I believe that with these small changes, the network will become much easier to use, and - given some time - might even be able to overtake the original Stellar network in terms of accessibility and consequently trade volume.
 
