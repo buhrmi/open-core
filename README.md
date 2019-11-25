@@ -2,7 +2,7 @@
 
 # Aya
 
-Aya is a replicated state machine using the the [Stellar Consensus Protocol](https://github.com/stellar/stellar-core/blob/master/src/scp/readme.md). It's mostly compatible to Stellar, but with some differences that I believe will put Aya into a position that allows it to become the easiest and most accessible blockchain in the world. These differences include:
+Aya is a replicated state machine using the the [Stellar Consensus Protocol](https://github.com/stellar/stellar-core/blob/master/src/scp/readme.md). It's mostly compatible to Stellar, but with some differences that I believe will put Aya in a position that allows it to become the easiest and most accessible blockchain in the world. These differences include:
 
 - No `createAccount` transactions. It shouldn't be neccessary to enforce a `createAccount` transaction before a user can receive funds. All addresses should automatically be valid accounts.
 - No trustlines. You can still send custom assets, but the receiver does not need to create a trustline first. every user automatically has an "unlimited" trustline for every asset.
