@@ -15,16 +15,16 @@ Users and developers can interact with the network in the following ways:
 
 # Origins
 
-The Open Core Network is a fork of the [Stellar Consensus](http://www.stellar.org/galaxy) Protocol that
+The Open Core Network is basically the same as [Stellar](http://www.stellar.org) but it
 
-- Does not have a native currency
-- Does not have a central authority
-- Does not have inflation
-- Does not have transaction fees
-- Does not need a "createAccount" transaction
-- Does not have a root account
-- Starts with a blank genesis ledger
-- Is truly open
+- does not have a native currency
+- does not have a central authority
+- does not have inflation
+- does not have transaction fees
+- does not need a "createAccount" transaction
+- does not have a root account
+- starts with a blank genesis ledger
+- is truly open
 
 # Getting Started
 
