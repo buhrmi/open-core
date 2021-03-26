@@ -1,5 +1,7 @@
 [![Build Status](https://travis-ci.org/open-core/network.svg?branch=master)](https://travis-ci.org/open-core/network)
 
+> NOTE: This project never got any traction and my validator node is offline.
+
 # open-core/network
 
 The Open Core Network is a network of connected peers that work together to maintain consensus over the state of a globally synchronized cryptographic ledger. Users can create, sign and submit transactions into the network and query its replicated database for information.
@@ -21,7 +23,6 @@ The Open Core Network is a fork of the [Stellar Consensus](http://www.stellar.or
 - Does not have transaction fees
 - Does not need a "createAccount" transaction
 - Does not have a root account
-- Does not have a notion of an unsafe quorum
 - Starts with a blank genesis ledger
 - Is truly open
 
@@ -43,10 +44,3 @@ manually.  The advantage of this is that you can examine the database
 log in `$PGDATA/pg_log/` after running tests, as well as manually
 inspect the database with `psql`.
 
-# Contributing
-
-Just do your best! If you have any questions, join us in the developer chat at [Slack](https://stellar-public.slack.com/messages/dev/) and ask away.
-
-# License
-
-Yes. Check the license file for information.
