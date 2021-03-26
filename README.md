@@ -4,17 +4,6 @@
 
 # open-core/network
 
-The Open Core Network is a network of connected peers that work together to maintain consensus over the state of a globally synchronized cryptographic ledger. Users can create, sign and submit transactions into the network and query its replicated database for information.
-
-Users and developers can interact with the network in the following ways:
-
-* Through the official [open-core webapp](http://github.com/open-core/webapp)
-* Through client libraries, currently for [Ruby](http://github.com/stellar/ruby-stellar-base), [Javascript](http://github.com/stellar/js-stellar-base) and [Go](https://github.com/stellar/go-stellar-base)
-* Through an instance of the [Stellar Horizon API](http://github.com/stellar/horizon) server running against the Open Core Network
-* Directly accessing the Postgres SQL database (read-only)
-
-# Origins
-
 The Open Core Network is basically the same as [Stellar](http://www.stellar.org) but it
 
 - does not have a native currency
