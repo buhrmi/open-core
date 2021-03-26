@@ -4,7 +4,7 @@
 
 # open-core/network
 
-The Open Core Network is basically the same as [Stellar](http://www.stellar.org) but it
+Open Core is basically the same as [Stellar](http://www.stellar.org) but it
 
 - does not have a native currency
 - does not have a central authority
