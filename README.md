@@ -17,9 +17,9 @@ Open Core is basically the same as [Stellar](http://www.stellar.org) but it
 
 # Getting Started
 
-Installation instructions ---> [HERE](https://github.com/buhrmi/core/blob/master/INSTALL.md)
+Installation instructions ---> [HERE](https://github.com/buhrmi/open-core/blob/master/INSTALL.md)
 
-After installation, use [this configuration file](https://github.com/buhrmi/core/blob/master/docs/open-core.cfg) to configure your node to connect to the network. Note that this config file pre-configures my personal validator node (validator.open-core.org) in the quorum. DO NOT USE IT if you don't trust this node.
+After installation, use [this configuration file](https://github.com/buhrmi/open-core/blob/master/docs/open-core.cfg) to configure your node to connect to the network. Note that this config file pre-configures my personal validator node (validator.open-core.org) in the quorum. DO NOT USE IT if you don't trust this node.
 
 # Running tests against postgreSQL
 
